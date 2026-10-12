@@ -21,6 +21,7 @@ import type {
 
 import { getRegionConfig, requireHash } from "./config.js";
 import { browserTransport } from "./browser-transport.js";
+import { redactForLog } from "./redact.js";
 
 /**
  * Region-specific endpoints and hashes now come from config.ts.
@@ -319,7 +320,7 @@ export class FoodpandaClient {
     }
     if (!result.ok) {
       throw new Error(
-        `Foodpanda API error (${result.status}): ${result.text.slice(0, 500)}`
+        `Foodpanda API error (${result.status}): ${redactForLog(result.text).slice(0, 500)}`
       );
     }
     return JSON.parse(result.text) as T;
@@ -352,7 +353,7 @@ export class FoodpandaClient {
     }
     if (!result.ok) {
       throw new Error(
-        `Foodpanda GraphQL error (${result.status}): ${result.text.slice(0, 500)}`
+        `Foodpanda GraphQL error (${result.status}): ${redactForLog(result.text).slice(0, 500)}`
       );
     }
     return JSON.parse(result.text) as T;
@@ -1444,8 +1445,8 @@ export class FoodpandaClient {
       }
     );
 
-    // Log raw response for debugging
-    console.error("[placeOrder] checkout response:", JSON.stringify(result, null, 2));
+    // Log the response for debugging, without names, phones, addresses or tokens
+    console.error("[placeOrder] checkout response:", redactForLog(result));
 
     // Check for error indicators in the response body
     if (result.errors && result.errors.length > 0) {
@@ -1480,9 +1481,9 @@ export class FoodpandaClient {
       null;
 
     if (!orderCode) {
-      console.error("[placeOrder] no order code found in response:", JSON.stringify(result));
+      console.error("[placeOrder] no order code found in response:", redactForLog(result));
       throw new Error(
-        "Order may not have been placed — no order code in response. Check your foodpanda app/website to confirm. Raw response logged to server stderr."
+        "Order may not have been placed — no order code in response. Check your foodpanda app/website to confirm. A redacted copy of the response was logged to server stderr."
       );
     }
 
