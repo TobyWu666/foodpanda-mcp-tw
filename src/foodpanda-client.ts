@@ -20,7 +20,9 @@ import {
   parsePaymentMethodChoice,
 } from "./payment-method.js";
 
-import { getRegionConfig, requireHash } from "./config.js";
+import { join } from "node:path";
+import { getRegionConfig, requireHash, stateDir } from "./config.js";
+import { OrderCheckLockStore } from "./order-lock.js";
 import { browserTransport } from "./browser-transport.js";
 import { redactForLog } from "./redact.js";
 import {
@@ -42,7 +44,6 @@ import {
   checkQuantity,
   type PaymentOption,
   type PurchaseIntent,
-  CHECK_THE_APP,
   CheckoutStatusUnknownError,
   buildCheckoutRequest,
   checkoutMismatches,
@@ -76,6 +77,9 @@ interface CachedVendorMenu extends RestaurantPage {
 /** Menus change during the day (breakfast/regular menus); refetch after this long. */
 const MENU_CACHE_MS = 10 * 60 * 1000;
 
+/** In the state dir: present while an order's outcome is unknown and the user has not checked the app. */
+export const ORDER_CHECK_LOCK_FILE = "order-check-required.json";
+
 /** Raw HTTP, injectable so tests can run the whole flow without the network. */
 export type HttpFunction = (
   url: string,
@@ -86,6 +90,8 @@ export interface FoodpandaClientOptions {
   /** Replaces the network (fetch or browser transport) and the request throttle. */
   http?: HttpFunction;
   guard?: OrderGuard;
+  /** Where the "check the app first" lock is kept; null keeps it in memory. Default: the state dir. */
+  lockFile?: string | null;
 }
 
 /** What prepareOrder locked; place_order rebuilds the order from it. */
@@ -162,8 +168,8 @@ export class FoodpandaClient {
   // Two-step order state
   private readonly guard: OrderGuard;
   private prepared: PreparedOrder | null = null;
-  /** Set when a checkout was sent but its outcome is unknown. */
-  private unresolvedOrder: { at: string; detail: string } | null = null;
+  /** Set when a checkout was sent but its outcome is unknown; survives restarts. */
+  private readonly orderCheckLock: OrderCheckLockStore;
   private readonly http: HttpFunction | undefined;
 
   constructor(
@@ -173,6 +179,13 @@ export class FoodpandaClient {
     options: FoodpandaClientOptions = {}
   ) {
     this.http = options.http;
+    this.orderCheckLock = new OrderCheckLockStore(
+      options.lockFile !== undefined
+        ? options.lockFile
+        : process.env.NODE_TEST_CONTEXT
+          ? null // tests never write to the real state dir
+          : join(stateDir(), ORDER_CHECK_LOCK_FILE)
+    );
     this.guard = options.guard ?? new OrderGuard();
     this.sessionToken = sessionToken;
     this.latitude = latitude;
@@ -840,16 +853,17 @@ export class FoodpandaClient {
     this.guard.invalidate();
     this.prepared = null;
 
-    if (this.unresolvedOrder) {
+    const lock = this.orderCheckLock.get();
+    if (lock) {
       if (!input.previous_order_checked_in_app) {
         throw new Error(
-          `The previous order's status is unknown (${this.unresolvedOrder.detail}, at ${this.unresolvedOrder.at}). ` +
+          `The previous order's status is unknown (${lock.reason}, at ${lock.at}). ` +
             "It may already have been placed. Ask the user to check the foodpanda app first. Only after they " +
             "confirm it did not go through (or that they want another order anyway), call prepare_order again " +
             "with previous_order_checked_in_app: true."
         );
       }
-      this.unresolvedOrder = null;
+      this.orderCheckLock.clear();
     }
 
     const choice = parsePaymentMethodChoice(input.payment_method);
@@ -1017,9 +1031,6 @@ export class FoodpandaClient {
           : {}),
         order_id: outcome.orderCode,
         status: outcome.status,
-        ...(outcome.status === "unconfirmed"
-          ? { status_note: "foodpanda did not report a status. Ask the user to check the order in the foodpanda app." }
-          : {}),
         estimated_delivery_time: outcome.estimatedDelivery,
         total,
         payment_method: option.choice,
@@ -1038,7 +1049,7 @@ export class FoodpandaClient {
    */
   private unresolved(err: Error): Error {
     this.clearCart();
-    this.unresolvedOrder = { at: new Date().toISOString(), detail: err.message.replace(CHECK_THE_APP, "").trim().slice(0, 300) };
+    this.orderCheckLock.set();
     return err;
   }
 

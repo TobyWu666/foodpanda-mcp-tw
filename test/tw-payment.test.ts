@@ -86,32 +86,64 @@ test("checkout response: an order code and nothing pending is a placed order", (
   assert.equal(outcome.estimatedDelivery, "35 min");
 });
 
-test("checkout response: a bare order code is accepted but its status is 'unconfirmed', not 'placed'", () => {
-  const outcome = parseCheckoutResponse({ id: "o6" });
-  assert.equal(outcome.status, "unconfirmed");
-  assert.equal(outcome.reportedTotal, null);
-  assert.equal(outcome.reportedMethods, null);
+test("checkout response: an order code with no success status is 'status unknown'", () => {
+  for (const resp of [{ id: "o6" }, { order_code: "o6", payment: {} }, { id: "o6", total: 366 }]) {
+    assert.throws(() => parseCheckoutResponse(resp), /does not say the order succeeded.*order code o6/s);
+  }
+});
+
+test("checkout response: success values are matched whole and in any key style", () => {
+  for (const resp of [
+    { id: "o", status: "SUCCESS" },
+    { id: "o", paymentStatus: "paid" },
+    { id: "o", order: { orderState: "Confirmed" } },
+    { id: "o", data: { result: "completed" } },
+  ]) {
+    assert.doesNotThrow(() => parseCheckoutResponse(resp), JSON.stringify(resp));
+  }
+  for (const value of ["unpaid", "not_confirmed", "success_pending", "paid_partially"]) {
+    assert.throws(() => parseCheckoutResponse({ id: "o", status: value }), CheckoutStatusUnknownError, value);
+  }
 });
 
 // The reviewer's probes, plus a few more: anything pending, anywhere, is "status unknown".
 const PENDING_SHAPES: Array<[string, unknown]> = [
-  ["payment.redirect_url", { id: "o1", payment: { redirect_url: "https://example.invalid/pay" } }],
-  ["payment.client_action", { order_code: "o2", payment: { client_action: { type: "LINE_PAY" } } }],
+  // First review
+  ["payment.redirect_url", { id: "o1", status: "success", payment: { redirect_url: "https://example.invalid/pay" } }],
+  ["payment.client_action", { order_code: "o2", status: "success", payment: { client_action: { type: "LINE_PAY" } } }],
   ["payment.status pending", { order_code: "o3", payment: { status: "pending" } }],
-  ["data.redirect_url", { data: { order_code: "o4", redirect_url: "https://example.invalid/pay" } }],
-  ["top-level redirect_url", { id: "o5", redirect_url: "https://example.invalid/pay" }],
-  ["payment.action string", { id: "o7", payment: { action: "redirect" } }],
-  ["deeplink", { id: "o8", payment: { line_pay: { deeplink: "line://pay/x" } } }],
+  ["data.redirect_url", { data: { order_code: "o4", status: "success", redirect_url: "https://example.invalid/pay" } }],
+  ["top-level redirect_url", { id: "o5", status: "success", redirect_url: "https://example.invalid/pay" }],
+  ["payment.action string", { id: "o7", status: "success", payment: { action: "redirect" } }],
+  ["deeplink", { id: "o8", status: "success", payment: { line_pay: { deeplink: "line://pay/x" } } }],
   ["status waiting_for_payment", { id: "o9", status: "WAITING_FOR_PAYMENT" }],
   ["result requires_action", { id: "o10", payment: { result: "requires_action" } }],
   ["order status failed", { order: { code: "o11", status: "failed" } }],
-  ["nested in an array", { id: "o12", payment: { steps: [{ action_url: "https://example.invalid" }] } }],
+  ["nested in an array", { id: "o12", status: "success", payment: { steps: [{ action_url: "https://example.invalid" }] } }],
+  // Re-review: each of these passed as a success before
+  ["camelCase paymentStatus PENDING", { id: "p1", status: "success", paymentStatus: "PENDING" }],
+  ["order.orderStatus AWAITING_PAYMENT", { id: "p2", status: "success", order: { orderStatus: "AWAITING_PAYMENT" } }],
+  ["status object", { id: "p3", status: "success", payment: { status: { code: "PENDING" } } }],
+  ["requires_payment true", { id: "p4", status: "success", requires_payment: true }],
+  ["is_pending true", { id: "p5", status: "success", is_pending: true }],
+  ["paid false", { id: "p6", status: "success", paid: false }],
+  ["next_step", { id: "p7", status: "success", next_step: { type: "PAY" } }],
+  ["webview", { id: "p8", status: "success", webview: { html: "x" } }],
+  ["form_html", { id: "p9", status: "success", form_html: "<form action='x'></form>" }],
+  ["location LINE Pay URL", { id: "p10", status: "success", location: "https://pay.line.me/x" }],
+  ["target LINE Pay URL", { id: "p11", status: "success", target: "https://pay.line.me/x" }],
+  ["any http(s) string", { id: "p12", status: "success", payment: { info: "https://pay.line.me/x" } }],
+  ["status CREATED", { id: "p13", status: "CREATED" }],
+  ["status NEW", { id: "p14", status: "NEW" }],
+  ["transactionStatus INIT", { id: "p15", status: "success", transactionStatus: "INIT" }],
+  ["requiresAction camelCase", { id: "p16", status: "success", payment: { requiresAction: true } }],
+  ["isPaid false", { id: "p17", status: "success", isPaid: false }],
 ];
 for (const [label, resp] of PENDING_SHAPES) {
   test(`checkout response: ${label} is 'status unknown', not a success`, () => {
     assert.throws(() => parseCheckoutResponse(resp), (err: Error) => {
       assert.ok(err instanceof CheckoutStatusUnknownError);
-      assert.match(err.message, /unfinished step or status/);
+      assert.match(err.message, /unfinished step or status|does not say the order succeeded/);
       assert.match(err.message, /Do not retry/);
       return true;
     });
@@ -126,11 +158,11 @@ test("checkout response: errors or no order code are 'status unknown'", () => {
 
 test("checkout response: a reported total or method that differs from the confirmed order is flagged", () => {
   const expected = { total: 366, method: "line_pay" };
-  const same = parseCheckoutResponse({ id: "o", total: 366, payment: { methods: [{ method: "line_pay" }] } });
+  const same = parseCheckoutResponse({ id: "o", status: "success", total: 366, payment: { methods: [{ method: "line_pay" }] } });
   assert.deepEqual(checkoutMismatches(same, expected), []);
-  const silent = parseCheckoutResponse({ id: "o" });
+  const silent = parseCheckoutResponse({ id: "o", status: "success" });
   assert.deepEqual(checkoutMismatches(silent, expected), [], "nothing reported, nothing to compare");
-  const other = parseCheckoutResponse({ id: "o", payment: { total: 380, methods: [{ method: "payment_on_delivery" }] } });
+  const other = parseCheckoutResponse({ id: "o", status: "success", payment: { total: 380, methods: [{ method: "payment_on_delivery" }] } });
   const found = checkoutMismatches(other, expected);
   assert.equal(found.length, 2);
   assert.match(found[0], /total 380 instead of the confirmed 366/);

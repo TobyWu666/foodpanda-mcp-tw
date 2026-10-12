@@ -404,7 +404,7 @@ export function createServer(client: FoodpandaClient): McpServer {
           .boolean()
           .optional()
           .describe(
-            "Only after a place_order whose status was unknown: set true once the user has checked the foodpanda app and still wants to order. Never set it on your own."
+            "Only after a place_order whose status was unknown: set true once the user has checked the foodpanda app and told you to order again. Never set it on your own. This flag is a reminder, not a safeguard: the user approving each place_order call is."
           ),
       }),
     },

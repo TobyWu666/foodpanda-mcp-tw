@@ -5,7 +5,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -84,9 +85,9 @@ function fakeFoodpanda() {
   return { http, calls, state, checkouts };
 }
 
-async function setup(guard?: OrderGuard) {
+async function setup(guard?: OrderGuard, lockFile: string | null = null) {
   const fake = fakeFoodpanda();
-  const fp = new FoodpandaClient(null, 25.033964, 121.564468, { http: fake.http, guard });
+  const fp = new FoodpandaClient(null, 25.033964, 121.564468, { http: fake.http, guard, lockFile });
   const server = createServer(fp);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
@@ -407,7 +408,7 @@ test("an order whose reported total or method differs is flagged prominently", a
   try {
     fake.state.checkout = () => ({
       status: 200,
-      text: JSON.stringify({ id: "fake-order-4", total: 380, payment: { methods: [{ method: "line_pay" }] } }),
+      text: JSON.stringify({ id: "fake-order-4", status: "success", total: 380, payment: { methods: [{ method: "line_pay" }] } }),
     });
     await fillCart(call);
     const { confirmation_code } = await prepare(call);
@@ -421,17 +422,55 @@ test("an order whose reported total or method differs is flagged prominently", a
   }
 });
 
-test("a bare order code is reported with status 'unconfirmed' and a note to check the app", async () => {
+test("a bare order code is 'status unknown' and locks ordering", async () => {
   const { fake, call, close } = await setup();
   try {
     fake.state.checkout = () => ({ status: 200, text: JSON.stringify({ id: "fake-order-5" }) });
     await fillCart(call);
     const { confirmation_code } = await prepare(call);
-    const result = JSON.parse((await call("place_order", { confirmation_code })).text);
-    assert.equal(result.status, "unconfirmed");
-    assert.match(result.status_note, /check the order in the foodpanda app/);
+    const res = await call("place_order", { confirmation_code });
+    assert.match(res.text, /order status is unknown.*does not say the order succeeded/s);
+    assert.match(res.text, /fake-order-5/);
+    await fillCart(call);
+    assert.match((await call("prepare_order", { payment_method: "cash" })).text, /previous order's status is unknown/);
   } finally {
     await close();
+  }
+});
+
+test("the check-the-app lock survives a restart, holds no order details, and is lifted only with the flag", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fp-lock-"));
+  const lockFile = join(dir, "order-check-required.json");
+  try {
+    const first = await setup(undefined, lockFile);
+    try {
+      first.fake.state.checkout = () => {
+        throw new Error("socket hang up");
+      };
+      await fillCart(first.call);
+      const { confirmation_code } = await prepare(first.call);
+      assert.match((await first.call("place_order", { confirmation_code })).text, /order status is unknown/);
+    } finally {
+      await first.close();
+    }
+
+    const saved = readFileSync(lockFile, "utf-8");
+    assert.deepEqual(Object.keys(JSON.parse(saved)).sort(), ["at", "reason"]);
+    assert.doesNotMatch(saved, /test01|990000001|366|line_pay|socket/);
+
+    // A new server process (same state dir) still refuses.
+    const second = await setup(undefined, lockFile);
+    try {
+      await fillCart(second.call);
+      assert.match((await second.call("prepare_order", { payment_method: "cash" })).text, /previous order's status is unknown/);
+      const ok = await second.call("prepare_order", { payment_method: "cash", previous_order_checked_in_app: true });
+      assert.equal(ok.isError, false, ok.text);
+      assert.equal(existsSync(lockFile), false, "lifted once the user has checked");
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

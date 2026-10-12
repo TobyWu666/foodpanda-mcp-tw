@@ -114,7 +114,6 @@ export interface OrderResult {
   attention?: string;
   order_id: string;
   status: string;
-  status_note?: string;
   estimated_delivery_time: string;
   total: number;
   payment_method: string;

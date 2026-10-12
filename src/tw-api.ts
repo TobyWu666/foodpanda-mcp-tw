@@ -870,7 +870,7 @@ export class CheckoutStatusUnknownError extends Error {
 
 export interface CheckoutOutcome {
   orderCode: string;
-  /** The status foodpanda reported, or "unconfirmed" when it reported none. */
+  /** The success status foodpanda reported (never assumed). */
   status: string;
   estimatedDelivery: string;
   /** The total foodpanda reported for the order, if the response carries one. */
@@ -879,11 +879,18 @@ export interface CheckoutOutcome {
   reportedMethods: string[] | null;
 }
 
-/** Keys that mean "the customer still has to go somewhere or do something". */
-const PENDING_STEP_KEY = /redirect|action|url|deeplink|deep_link|app_link|applink|link|challenge|3ds|qr/i;
-/** Status-like values that mean the order or payment is not finished. */
-const NOT_DONE_STATUS = /pend|wait|requir|fail|declin|reject|cancel|error|unpaid|process|initiat|authori|incomplete|unknown|timeout|expire/i;
-const STATUS_KEY = /^(status|result|state|payment_status|order_status)$/i;
+/** paymentStatus -> payment_status, so camelCase and snake_case keys are read alike. */
+function normaliseKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[-\s]+/g, "_").toLowerCase();
+}
+
+/** A status / result / state field, however it is prefixed (payment_status, orderStatus, ...). */
+const STATUS_KEY = /(^|_)(status|result|state)$/;
+/** The only status values that count as a finished order. Matched whole, so "unpaid" is not "paid". */
+const SUCCESS_VALUE = /^(success|succeeded|successful|paid|completed|complete|confirmed|accepted)$/i;
+/** Keys whose presence (non-empty) means the customer still has something to do. */
+const PENDING_KEY =
+  /redirect|action|deeplink|deep_link|app_link|applink|(^|_)url$|(^|_)link$|challenge|3ds|(^|_)qr|next_step|webview|form_html|(^|_)location$|(^|_)target$/;
 
 function isEmpty(value: unknown): boolean {
   if (value === null || value === undefined || value === "" || value === false) return true;
@@ -892,32 +899,53 @@ function isEmpty(value: unknown): boolean {
   return false;
 }
 
-/** Every reason, anywhere in the body, that the order may not be finished. */
-function pendingSignals(body: unknown, path = ""): string[] {
-  if (!body || typeof body !== "object") return [];
-  const found: string[] = [];
-  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-    const here = path ? `${path}.${key}` : key;
-    if (PENDING_STEP_KEY.test(key) && !isEmpty(value)) found.push(here);
-    if (STATUS_KEY.test(key) && typeof value === "string" && NOT_DONE_STATUS.test(value)) {
-      found.push(`${here}=${value}`);
-    }
-    if (value && typeof value === "object") found.push(...pendingSignals(value, here));
+interface CheckoutSignals {
+  /** Status-like fields with a success value, e.g. "payment.result=success". */
+  success: string[];
+  /** Everything that says the order or payment may not be finished. */
+  pending: string[];
+}
+
+/** Walk the whole body, every depth and array, collecting success and pending signs. */
+function checkoutSignals(body: unknown, path = "", out: CheckoutSignals = { success: [], pending: [] }): CheckoutSignals {
+  if (Array.isArray(body)) {
+    body.forEach((v, i) => checkoutSignals(v, `${path}[${i}]`, out));
+    return out;
   }
-  return found;
+  if (!body || typeof body !== "object") {
+    if (typeof body === "string" && /^https?:\/\//i.test(body.trim())) out.pending.push(`${path} is a link`);
+    return out;
+  }
+  for (const [rawKey, value] of Object.entries(body as Record<string, unknown>)) {
+    const key = normaliseKey(rawKey);
+    const here = path ? `${path}.${rawKey}` : rawKey;
+    if (STATUS_KEY.test(key)) {
+      if (typeof value === "string" && SUCCESS_VALUE.test(value.trim())) out.success.push(`${here}=${value}`);
+      else if (value !== null && value !== undefined) out.pending.push(`${here}=${JSON.stringify(value)}`);
+    }
+    if (PENDING_KEY.test(key) && !isEmpty(value)) out.pending.push(here);
+    if ((key.startsWith("requires_") || key === "is_pending" || key === "pending") && value === true) {
+      out.pending.push(`${here}=true`);
+    }
+    if ((key === "paid" || key === "is_paid") && value === false) out.pending.push(`${here}=false`);
+    checkoutSignals(value, here, out);
+  }
+  return out;
 }
 
 /**
  * Read a checkout response, accepting only a clearly finished order.
  *
- * UNVERIFIED FOR TW: no tw checkout response has ever been captured, so there is
- * no known success shape to match. Until one is recorded, the rule is an
- * allow-list: an order code, and nothing anywhere in the body that looks like a
- * pending step (a non-empty redirect / action / url / deeplink field) or an
- * unfinished status (pending, waiting, required, failed, ...). Anything else is
- * "status unknown". Bound LINE Pay is meant to be charged with no extra step, so
- * a LINE Pay order still waiting for payment lands here, never as a success.
- * Replace this with the real tw shape once a checkout is captured.
+ * UNVERIFIED FOR TW: no tw checkout response has ever been captured, so this
+ * cannot match a known success shape. It accepts an answer only when it has an
+ * order code, at least one status / result / state field (any depth, any key
+ * style) saying success / paid / completed / confirmed / accepted, and no
+ * sign of an unfinished step anywhere: no other status value (pending, CREATED,
+ * NEW, INIT, a status object, ...), no link, redirect, action, deeplink, webview
+ * or form, no requires_* / is_pending flag, no paid: false. Everything else is
+ * "status unknown", which empties the cart and locks ordering until the user
+ * has checked the app. The first real order may well land there; record its
+ * response and narrow this to the real tw success shape.
  */
 export function parseCheckoutResponse(resp: any): CheckoutOutcome {
   if (!resp || typeof resp !== "object" || Array.isArray(resp)) {
@@ -930,31 +958,42 @@ export function parseCheckoutResponse(resp: any): CheckoutOutcome {
   }
   if (resp.error) throw new CheckoutStatusUnknownError(`foodpanda answered with an error (${resp.error}).`);
 
-  const signals = pendingSignals(resp);
-  if (signals.length > 0) {
-    throw new CheckoutStatusUnknownError(
-      `foodpanda's answer shows an unfinished step or status (${signals.slice(0, 5).join(", ")}), so the ` +
-        "payment may not be complete. The order may be waiting for payment."
-    );
-  }
-
   const orderCode =
     resp.id ?? resp.order?.code ?? resp.order?.order_code ?? resp.code ?? resp.order_code ??
     resp.data?.order_code ?? resp.data?.code ?? null;
+  const codeNote = typeof orderCode === "string" && orderCode ? ` foodpanda returned order code ${orderCode}.` : "";
+
+  const signals = checkoutSignals(resp);
+  if (signals.pending.length > 0) {
+    throw new CheckoutStatusUnknownError(
+      `foodpanda's answer shows an unfinished step or status (${signals.pending.slice(0, 5).join(", ")}), so the ` +
+        `payment may not be complete. The order may be waiting for payment.${codeNote}`
+    );
+  }
   if (typeof orderCode !== "string" || !orderCode) {
     throw new CheckoutStatusUnknownError("checkout did not return an order code.");
   }
+  if (signals.success.length === 0) {
+    throw new CheckoutStatusUnknownError(
+      `foodpanda's answer does not say the order succeeded (this server has never seen a confirmed foodpanda ` +
+        `Taiwan checkout answer, so it only accepts an explicit success status).${codeNote}`
+    );
+  }
 
-  const statusValue = resp.payment?.result ?? resp.order?.status ?? resp.status ?? resp.data?.status;
   const minutes = Number(resp.expedition?.expected_delivery_duration ?? 0);
   const totalValue = resp.total ?? resp.payment?.total ?? resp.payment?.payable_total ?? resp.order?.total ?? resp.data?.total;
   const methodList: any[] | null = Array.isArray(resp.payment?.methods) ? resp.payment.methods : null;
   const singleMethod = resp.payment?.method ?? resp.order?.payment_method ?? resp.data?.payment_method;
   return {
     orderCode,
-    status: typeof statusValue === "string" && statusValue ? statusValue : "unconfirmed",
+    status: signals.success[0].split("=").slice(1).join("="),
     estimatedDelivery: resp.order?.estimated_delivery_time ?? (minutes > 0 ? `${minutes} min` : ""),
-    reportedTotal: typeof totalValue === "number" ? totalValue : typeof totalValue === "string" && totalValue.trim() !== "" && !Number.isNaN(Number(totalValue)) ? Number(totalValue) : null,
+    reportedTotal:
+      typeof totalValue === "number"
+        ? totalValue
+        : typeof totalValue === "string" && totalValue.trim() !== "" && !Number.isNaN(Number(totalValue))
+          ? Number(totalValue)
+          : null,
     reportedMethods: methodList
       ? methodList.map((m) => String(m?.method ?? m?.name ?? "?"))
       : typeof singleMethod === "string"

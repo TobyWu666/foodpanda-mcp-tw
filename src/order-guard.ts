@@ -287,10 +287,15 @@ export const PLACE_ORDER_DESCRIPTION_NOTE =
   "the prepare_order summary in this conversation and explicitly agreed. Requires the " +
   "confirmation code from prepare_order; the code is single-use, expires, and is " +
   "rejected if the cart, prices, payment method or address changed. The code is spent " +
-  "before the order is sent, so on any error call prepare_order again rather than retrying.";
+  "before the order is sent, so on any error call prepare_order again rather than retrying. " +
+  "If the result is 'status unknown', tell the user to check the foodpanda app: the order " +
+  "may exist. The user's approval of each place_order call in their MCP client is the real " +
+  "safeguard; the confirmation code and the check-the-app lock only slow mistakes down.";
 
 /** For the README: what the code does not protect against. */
 export const README_SAFETY_NOTE =
   "Never add place_order to your client's auto-approve / always-allow list. The " +
   "confirmation code stops stale or changed orders, but the agent can read the code, " +
-  "so only your client's per-call approval prompt guarantees a human said yes.";
+  "and after an order with an unknown outcome the agent can also lift the " +
+  "check-the-app lock itself (previous_order_checked_in_app). Only your client's " +
+  "per-call approval prompt guarantees a human said yes.";
