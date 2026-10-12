@@ -35,8 +35,8 @@
 - 新增 `tw` region preset 並設為預設（`https://tw.fd-api.com`、`https://www.foodpanda.com.tw`、
   `zh_TW`、`TWD`、language id `6`、`x-global-entity-id: FP_TW`）。所有值都取自實際在台灣站錄下的網路流量，沒有猜測。
 - 搜尋、連鎖分店、餐廳資訊、菜單、品項選項、購物車驗價改用台灣網站實際使用的 GraphQL 查詢與資料格式。
-- 付款只支援「已綁定的 LINE Pay」與「貨到付款（現金）」，其他方式一律明確報錯（開發中，見[付款方式](#付款方式)）。
-- 下單改為兩步，需要一次性確認碼（開發中，見[下單安全](#下單安全兩步下單)）。
+- 付款只支援「已綁定的 LINE Pay」與「貨到付款（現金）」，其他方式一律明確報錯（見[付款方式](#付款方式)）。
+- 下單改為兩步，需要一次性確認碼（見[下單安全](#下單安全兩步下單)）。
 - 儲存的 token 會檢查區域和是否過期。
 
 `hk`、`ph` preset 仍然保留、可以載入，但瀏覽與購物車現在是照台灣網站的做法寫的，**不保證**能用在香港或菲律賓。
@@ -48,10 +48,9 @@
 | 1 | 架構報告 | 完成 |
 | 2 | `tw` preset、登入、token 檢查 | 完成 |
 | 3 | 搜尋、菜單、品項選項、購物車驗價 | 進行中（尚未在真實網站上實測） |
-| 4 | 付款（LINE Pay／現金）與兩步下單 | **規劃中** |
+| 4 | 付款（LINE Pay／現金）與兩步下單 | 已實作，尚未在真實網站上實測 |
 | 5 | 測試與 README | 進行中 |
 
-本文件中標示 **（規劃中）** 的 tool 名稱與欄位，會在階段 4 完成時更新為最終版本。
 
 ## 需求
 
@@ -59,7 +58,7 @@
 - Playwright 的 Chromium（`npx playwright install chromium`）。API 請求和登入都在真的瀏覽器裡進行。
 - 在沒有螢幕的伺服器上需要 **Xvfb**（`apt-get install xvfb`）。瀏覽器必須以有畫面（headed）模式執行才過得了 PerimeterX，
   沒有 `DISPLAY` 時程式會自己啟動 Xvfb。在一般桌機（Mac／Windows／有桌面的 Linux）上不需要。
-- 一個 foodpanda 台灣帳號，而且**要用的外送地址已經先存在帳號裡**。（地址怎麼選定會在階段 4 實作，**規劃中**：在 `prepare_order` 明確選定並綁進確認碼。）
+- 一個 foodpanda 台灣帳號，而且**要用的外送地址已經先存在帳號裡**。下單時在 `prepare_order` 選定地址（見[下單安全](#下單安全兩步下單)）。
 
 ## 安裝與建置
 
@@ -255,34 +254,41 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 信用卡、全支付及其他付款方式**不支援**。
 - 指定不支援或帳號上不可用的方式時，會回傳明確錯誤（錯誤代碼 `UNSUPPORTED_PAYMENT_METHOD`，
   訊息會列出可用的方式並註明「沒有改用其他付款方式」），**絕不會**默默換成別的方式。
-- **（規劃中）** 新的 tool 讓 AI 列出你帳號可用的付款方式（暫定名稱 `list_payment_methods`），
-  並在 `prepare_order` 時選擇 `linepay` 或 `cash`。舊版一步下單（`preview_order`／`place_order`）**目前已停用**，要等階段 4 的兩步下單完成才能下單。
+- **只能用已綁定的 LINE Pay。** 帳號沒有綁定 LINE Pay 時，`linepay` 會被拒絕（原因：no bound LINE Pay account），
+  不會改走需要 LINE app 的流程，也不會改用現金。
+- `list_payment_methods`（不需參數，購物車不能是空的）會列出：
+  - `available`：這次訂單可用的 `linepay`／`cash`
+  - `unavailable`：不可用的那幾個，附原因
+  - `not_supported_by_this_server`：foodpanda 有提供、但這個 server 不支援的其他方式（只列出，永遠不會使用）
+- 付款方式在 `prepare_order` 的 `payment_method` 選定（`linepay` 或 `cash`），之後不能在 `place_order` 更改。
 
-> **LINE Pay 尚未驗證：** 目前還不知道已綁定的 LINE Pay 在結帳時會不會要求跳轉到 LINE 確認。
+> **LINE Pay 尚未驗證：** 目前還不知道已綁定的 LINE Pay 結帳時是直接扣款，還是會要求跳轉到 LINE 確認。
 > 這要等第一次真實下單才能確認（只會由帳號擁有者手動進行）。
-> 規劃的處理方式：如果結帳回應要求跳轉，server 會回報「狀態不明，請到 foodpanda app 確認訂單」，
-> **不會**自動重試，以免重複下單。
+> 如果結帳回應要求跳轉或額外付款步驟，server 會回報「訂單狀態不明，請先到 foodpanda app 或網站確認」，
+> **不會**重試，也**不會**改用現金。
 
 ## 下單安全：兩步下單
 
-> **（規劃中，階段 4）** 以下是設計好的流程，確認碼模組（`src/order-guard.ts`）已完成並有測試，
-> 但還沒接到實際的下單 tool。tool 名稱與欄位以階段 4 完成時為準。
+下單拆成兩步（舊版的一步下單 `preview_order` 已移除）：
 
-下單拆成兩步：
+1. **`prepare_order`**：用選定的地址和付款方式為目前的購物車驗價並鎖定，**不會下單**。參數：
+   - `payment_method`（必填）：`linepay` 或 `cash`
+   - `address_id`（選填，整數）：帳號只有一個已存地址時自動使用；有好幾個時必填，沒填的話錯誤訊息會列出所有地址讓你選
+   - `delivery_instructions`（選填，最多 300 字）：給外送員的備註
 
-1. **`prepare_order`** 回傳完整訂單內容：品項、數量、選項、小計、外送費、總金額、付款方式、外送地址，
-   以及一組**一次性確認碼**。付款方式與外送備註在這一步就決定，並綁進確認碼。
-2. **`place_order`** 只收這組確認碼，才會真的送出訂單（會扣款）。
+   回傳完整訂單內容：品項、數量、選項、小計、外送費、總金額、付款方式、外送地址，以及一組**一次性確認碼**
+   `confirmation_code`（5 分鐘內有效）。
+2. **`place_order`**：**只收** `confirmation_code`，才會真的送出訂單（會扣款）。付款方式、地址、備註都已綁在確認碼裡，不能在這一步更改。
 
 確認碼的規則：
 
 - 5 分鐘後失效。
 - 只能用一次；送單**之前**就先作廢，所以就算送單失敗也不能用同一組碼重試，要重新 `prepare_order`。
-- 購物車、價格、付款方式、地址任何一項改變，確認碼就失效。
+- 購物車、價格、付款方式、地址任何一項改變，確認碼就失效；再呼叫一次 `prepare_order` 也會讓前一組碼失效。
 - server 重新啟動後，所有確認碼都失效。
-- 結帳不會自動重試。
+- 結帳**絕不重試**。結果不明時（例如連線中斷、LINE Pay 要求跳轉），server 會回報「狀態不明，請先到 foodpanda app 確認」，不要再呼叫 `place_order`。
 
-tool 說明裡會明確寫：AI 必須先把 `prepare_order` 的內容完整給你看，取得你明確同意後，才能呼叫 `place_order`。
+tool 說明裡已明確寫：AI 必須先把 `prepare_order` 的內容完整給你看，取得你明確同意後，才能呼叫 `place_order`。
 
 ### 最重要的一條
 
@@ -312,10 +318,9 @@ tool 說明裡會明確寫：AI 必須先把 `prepare_order` 的內容完整給�
 | `add_to_cart` | 加入購物車，`topping_ids` 填選項代碼；必選群組沒選、選太多、選了不存在或售完的選項都會擋下 |
 | `get_cart` / `remove_from_cart` | 查看／移除購物車品項，價格會向 API 重新驗算 |
 | `refresh_token` | 開瀏覽器讓你登入，擷取並儲存 token |
-| `preview_order` / `place_order`（舊版） | **已停用**。階段 4 的兩步下單完成前無法下單 |
-| `list_payment_methods` | **（規劃中）** 列出帳號可用的付款方式（只會是 `linepay`、`cash`） |
-| `prepare_order` | **（規劃中）** 鎖定訂單內容並產生確認碼，取代 `preview_order` |
-| `place_order` | **（規劃中，新版）** 只收確認碼 |
+| `list_payment_methods` | 列出這次訂單可用／不可用的付款方式（只會用 `linepay`、`cash`），購物車不能是空的 |
+| `prepare_order` | 下單第 1 步：選付款方式、地址、備註，驗價並產生 5 分鐘有效的確認碼，不會下單 |
+| `place_order` | 下單第 2 步：只收 `confirmation_code`，送出真實訂單。**絕不能設成自動允許** |
 
 ## GraphQL hash 失效時
 
@@ -364,13 +369,15 @@ FOODPANDA_GQL_PRODUCT_HASH=...
    測試使用遮蔽過個資的資料；第一次實際連線驗證（搜尋、菜單、購物車驗價，不下單）尚未完成。
 3. **登入與二階段驗證。** 登入一定要有看得到的視窗並由你親自完成；不能由 AI 代填驗證碼。
    台灣站的實際登入流程還沒跑過，訪客 token、JWT 內容等細節尚待確認。
-4. **已綁定 LINE Pay 是否會在結帳時跳轉，目前未知。** 需要真實下單才能確認。若會跳轉，
-   server 會回報狀態不明、不會重試，請到 foodpanda app 確認。
-5. **付款只支援已綁定 LINE Pay 與現金**，其他方式會明確報錯。LINE Pay 與兩步下單仍在開發中（階段 4）。
-6. **外送地址。** 地址必須先存在帳號裡。下單時如何選定地址是階段 4 **規劃中**的功能（在 `prepare_order` 明確選定並綁進確認碼）。
-   目前購物車驗價使用設定的座標，還沒帶入實際地址。
-7. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
-8. **只在台灣驗證。** `hk`、`ph` preset 可以載入，但瀏覽與購物車照台灣網站的格式寫，不保證可用。
+4. **購物車驗價與結帳尚未在台灣站實測。** 送出的格式照抓包組成，但 `cart/checkout` 從沒在台灣站真的送過（開發時刻意不下單）。
+   第一次真實下單只會由帳號擁有者手動進行。
+5. **已綁定 LINE Pay 是否直接扣款、不跳轉，目前未知。** 若結帳要求跳轉，結果會是「狀態不明，請到 app 確認」，
+   **不會**改用現金，也不會重試。
+6. **結帳絕不重試。** 任何錯誤或不明結果都要先到 foodpanda app 確認訂單，再決定要不要重新 `prepare_order`。
+7. **付款只支援已綁定的 LINE Pay 與現金。** 未綁定的 LINE Pay、信用卡等其他方式都會被明確拒絕。
+8. **外送地址必須先存在帳號裡。** 有多個已存地址時要在 `prepare_order` 指定 `address_id`。
+9. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
+10. **只在台灣驗證。** `hk`、`ph` preset 可以載入，但瀏覽與購物車照台灣網站的格式寫，不保證可用。
 
 ## 開發
 
@@ -378,6 +385,7 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 src/config.ts               區域 preset 與 env 解析
 src/browser-transport.ts    當作 HTTP transport 的 Playwright 持久瀏覽器
 src/foodpanda-client.ts     API client（搜尋、菜單、購物車、結帳）
+src/tw-api.ts               台灣站的請求格式與回應解析（含付款與結帳）
 src/payment-method.ts       支援的付款方式（linepay、cash）與明確錯誤
 src/order-guard.ts          兩步下單確認碼
 src/token-manager.ts        token 儲存與瀏覽器登入
