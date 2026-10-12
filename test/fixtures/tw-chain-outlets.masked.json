@@ -1,0 +1,384 @@
+{
+ "request": {
+  "operationName": "GetVendorListPage",
+  "variables": {
+   "input": {
+    "expeditionType": "DELIVERY",
+    "latitude": 25.033964,
+    "locale": "zh_TW",
+    "longitude": 121.564468,
+    "customerType": "B2C",
+    "featureFlags": [
+     {
+      "name": "dynamic-pricing-indicator",
+      "value": "Original"
+     },
+     {
+      "name": "saver-delivery-upper-funnel",
+      "value": "Variation1"
+     },
+     {
+      "name": "pd-mp-homescreen-full-federation-listing",
+      "value": "Control"
+     },
+     {
+      "name": "vdp_citadel-tech-integration",
+      "value": "Control"
+     },
+     {
+      "name": "pd-mp-slp-replatform-federated",
+      "value": "Variation1"
+     }
+    ],
+    "languageId": 6,
+    "page": "CHAIN_LISTING_PAGE",
+    "availabilityFilters": {
+     "chainCodes": [
+      "co4jt"
+     ]
+    }
+   }
+  },
+  "extensions": {
+   "clientLibrary": {
+    "name": "@apollo/client",
+    "version": "4.0.12"
+   },
+   "persistedQuery": {
+    "version": 1,
+    "sha256Hash": "436d223f6c2c0d2ca1fbeec085e811183017e654394f75be55740ce2f9fff278"
+   }
+  }
+ },
+ "response": {
+  "data": {
+   "vendorListingPage": {
+    "components": [
+     {
+      "__typename": "VendorComponent",
+      "vendorData": {
+       "__typename": "VendorData",
+       "code": "test05",
+       "name": "測試餐廳 4",
+       "isSuperVendor": false,
+       "availability": {
+        "distanceInMeters": 1000,
+        "isAffectedByShrinkage": false,
+        "nextAvailableAt": "2026-10-13T06:00:00+08:00",
+        "status": "CLOSED",
+        "__typename": "VendorAvailability"
+       },
+       "verticalParent": {
+        "code": "Restaurant",
+        "__typename": "VerticalParent"
+       },
+       "verticalSegment": {
+        "code": "restaurants",
+        "__typename": "VerticalSegment"
+       },
+       "resolutionFallback": {
+        "minimumDeliveryTime": 40,
+        "pricing": {
+         "deliveryFee": 15,
+         "minimumOrderValue": 79,
+         "__typename": "VendorAvailabilityPricingFallbacks"
+        },
+        "__typename": "VendorAvailabilityFallbacks"
+       },
+       "nonCommissionRevenueInfo": null,
+       "images": {
+        "listing": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+        "logo": "https://images.deliveryhero.io/image/fd-tw/tw-logos/co4jt-logo.jpg",
+        "__typename": "VendorImagesData"
+       },
+       "vendorBudget": {
+        "budget": 2,
+        "__typename": "VendorBudget"
+       },
+       "vendorChainData": {
+        "code": "co4jt",
+        "name": "McDonald's 麥當勞",
+        "mainVendorCode": "test06",
+        "urlKey": "mcdonalds-mai-dang-lao",
+        "__typename": "VendorChainData"
+       },
+       "isFavoriteVendor": false,
+       "timeEstimations": {
+        "delivery": {
+         "duration": {
+          "upperLimitInMinutes": 25,
+          "lowerLimitInMinutes": 15,
+          "__typename": "TimeEstimationDuration"
+         },
+         "minimumTime": null,
+         "__typename": "TimeEstimation"
+        },
+        "pickup": null,
+        "__typename": "TimeEstimations"
+       },
+       "timezone": "Asia/Taipei",
+       "vendorRating": {
+        "count": 17584,
+        "value": 4.8,
+        "__typename": "VendorRating"
+       },
+       "deliveryProvider": "PLATFORM",
+       "incentives": [
+        {
+         "id": "dynamic-pricing:subscription:6989:test05",
+         "__typename": "IncentiveData"
+        }
+       ],
+       "urlKey": "test-vendor",
+       "dynamicPricing": {
+        "deliveryFee": {
+         "total": 19,
+         "__typename": "DynamicPricingDeliveryFee"
+        },
+        "minimumOrderValue": {
+         "total": 79,
+         "__typename": "DynamicPricingMinimumOrderValue"
+        },
+        "__typename": "DynamicPricing"
+       },
+       "vendorTile": {
+        "type": "L",
+        "media": {
+         "url": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+         "__typename": "Image"
+        },
+        "primaryTags": null,
+        "secondaryTags": [],
+        "vendorInfo": [
+         [
+          {
+           "id": "VENDOR_INFO_BUDGET_SIGN",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$$",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_CUISINES",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "歐美",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ],
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_FEE",
+           "elements": [
+            {
+             "__typename": "VendorTileIcon",
+             "iconId": "RIDER",
+             "iconDecorators": []
+            },
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$19",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ]
+        ],
+        "__typename": "VendorTile"
+       }
+      }
+     },
+     {
+      "__typename": "VendorComponent",
+      "vendorData": {
+       "__typename": "VendorData",
+       "code": "test01",
+       "name": "測試餐廳 5",
+       "isSuperVendor": false,
+       "availability": {
+        "distanceInMeters": 1000,
+        "isAffectedByShrinkage": false,
+        "nextAvailableAt": null,
+        "status": "OPEN",
+        "__typename": "VendorAvailability"
+       },
+       "verticalParent": {
+        "code": "Restaurant",
+        "__typename": "VerticalParent"
+       },
+       "verticalSegment": {
+        "code": "restaurants",
+        "__typename": "VerticalSegment"
+       },
+       "resolutionFallback": {
+        "minimumDeliveryTime": 40,
+        "pricing": {
+         "deliveryFee": 15,
+         "minimumOrderValue": 79,
+         "__typename": "VendorAvailabilityPricingFallbacks"
+        },
+        "__typename": "VendorAvailabilityFallbacks"
+       },
+       "nonCommissionRevenueInfo": null,
+       "images": {
+        "listing": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+        "logo": "https://images.deliveryhero.io/image/fd-tw/tw-logos/co4jt-logo.jpg",
+        "__typename": "VendorImagesData"
+       },
+       "vendorBudget": {
+        "budget": 2,
+        "__typename": "VendorBudget"
+       },
+       "vendorChainData": {
+        "code": "co4jt",
+        "name": "McDonald's 麥當勞",
+        "mainVendorCode": "test06",
+        "urlKey": "mcdonalds-mai-dang-lao",
+        "__typename": "VendorChainData"
+       },
+       "isFavoriteVendor": false,
+       "timeEstimations": {
+        "delivery": {
+         "duration": {
+          "upperLimitInMinutes": 40,
+          "lowerLimitInMinutes": 30,
+          "__typename": "TimeEstimationDuration"
+         },
+         "minimumTime": null,
+         "__typename": "TimeEstimation"
+        },
+        "pickup": null,
+        "__typename": "TimeEstimations"
+       },
+       "timezone": "Asia/Taipei",
+       "vendorRating": {
+        "count": 21201,
+        "value": 4.8,
+        "__typename": "VendorRating"
+       },
+       "deliveryProvider": "PLATFORM",
+       "incentives": [
+        {
+         "id": "dynamic-pricing:subscription:6989:test01",
+         "__typename": "IncentiveData"
+        }
+       ],
+       "urlKey": "test-vendor",
+       "dynamicPricing": {
+        "deliveryFee": {
+         "total": 69,
+         "__typename": "DynamicPricingDeliveryFee"
+        },
+        "minimumOrderValue": {
+         "total": 79,
+         "__typename": "DynamicPricingMinimumOrderValue"
+        },
+        "__typename": "DynamicPricing"
+       },
+       "vendorTile": {
+        "type": "L",
+        "media": {
+         "url": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+         "__typename": "Image"
+        },
+        "primaryTags": null,
+        "secondaryTags": [],
+        "vendorInfo": [
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_TIME",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "NEXTGEN_VIN_DELIVERY_SAVER_TIME_VARIANT_TILE",
+             "arguments": [
+              "30"
+             ],
+             "isTranslationKey": true,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_BUDGET_SIGN",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$$",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_CUISINES",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "歐美",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ],
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_FEE",
+           "elements": [
+            {
+             "__typename": "VendorTileIcon",
+             "iconId": "RIDER",
+             "iconDecorators": []
+            },
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$69",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ]
+        ],
+        "__typename": "VendorTile"
+       }
+      }
+     }
+    ]
+   }
+  },
+  "extensions": {
+   "x-request-id": "a3d4d806-fc19-4575-b8d4-a40bcf776bba"
+  }
+ }
+}

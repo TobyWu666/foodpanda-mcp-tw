@@ -1,0 +1,1013 @@
+{
+ "request": {
+  "extensions": {
+   "persistedQuery": {
+    "sha256Hash": "22f7602de58c2f275e637f368379c9cddca7c80a3e921d1e06e492006cc29610",
+    "version": 1
+   }
+  },
+  "variables": {
+   "isPreconfiguredToppingsEnabled": false,
+   "recommendedChoiceGroupsInput": {
+    "isMealForOne": false,
+    "expeditionType": "DELIVERY"
+   },
+   "input": {
+    "productID": "157379049",
+    "vendorCode": "test01",
+    "expeditionType": "DELIVERY",
+    "menuID": "388886"
+   },
+   "discountedPriceInput": {
+    "expeditionType": "DELIVERY"
+   },
+   "includeVendor": true
+  }
+ },
+ "response": {
+  "data": {
+   "restaurantProduct": {
+    "__typename": "RestaurantProductData",
+    "vendor": {
+     "__typename": "VendorData",
+     "expeditionType": "DELIVERY",
+     "code": "test01",
+     "name": "測試餐廳 5",
+     "verticalSegment": {
+      "__typename": "VerticalSegment",
+      "code": "restaurants"
+     },
+     "soldOutOptions": [
+      {
+       "__typename": "SoldOutOption",
+       "default": false,
+       "option": "CALL_CUSTOMER",
+       "text": "NEXTGEN_SoldOutOptions_CALL_CUSTOMER"
+      },
+      {
+       "__typename": "SoldOutOption",
+       "default": true,
+       "option": "REFUND",
+       "text": "NEXTGEN_SoldOutOptions_Refund"
+      }
+     ],
+     "isDeliveryEnabled": true,
+     "isPickupEnabled": false,
+     "isPreorderEnabled": true,
+     "hasDeliveryProvider": true,
+     "acceptsInstructions": false,
+     "timezone": "Asia/Taipei",
+     "timeEstimations": {
+      "__typename": "TimeEstimations",
+      "delivery": {
+       "__typename": "TimeEstimation",
+       "minimumTime": null,
+       "duration": {
+        "__typename": "TimeEstimationDuration",
+        "lowerLimitInMinutes": 30
+       }
+      },
+      "pickup": null
+     },
+     "dynamicPricing": {
+      "__typename": "DynamicPricing",
+      "minimumOrderValue": {
+       "__typename": "DynamicPricingMinimumOrderValue",
+       "total": 79
+      },
+      "deliveryFee": {
+       "__typename": "DynamicPricingDeliveryFee",
+       "original": 69,
+       "total": 69
+      }
+     },
+     "images": {
+      "__typename": "VendorImagesData",
+      "listing": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+      "logo": "https://images.deliveryhero.io/image/fd-tw/tw-logos/co4jt-logo.jpg"
+     },
+     "characteristics": {
+      "__typename": "VendorCharacteristics",
+      "cuisines": [
+       {
+        "__typename": "Cuisine",
+        "id": "177",
+        "name": "漢堡"
+       },
+       {
+        "__typename": "Cuisine",
+        "id": "179",
+        "name": "歐美"
+       }
+      ],
+      "primaryCuisine": {
+       "__typename": "Cuisine",
+       "id": "179",
+       "name": "歐美"
+      }
+     },
+     "chain": {
+      "__typename": "VendorChainData",
+      "code": "co4jt",
+      "name": "McDonald's 麥當勞",
+      "mainVendorCode": "test06"
+     },
+     "location": {
+      "__typename": "[REDACTED:address]",
+      "latitude": 25.033964,
+      "longitude": 121.564468,
+      "addressLine1": "[REDACTED:address]",
+      "addressLine2": null
+     },
+     "rating": {
+      "__typename": "VendorRating",
+      "value": 4.8,
+      "count": 21201
+     },
+     "loyaltyPrograms": null
+    },
+    "id": "157379049",
+    "code": "2|33978%68877",
+    "imageUrl": "https://foodpanda.dhmedia.io/image/menu-import-gateway-prd/regions/AS/chains/mcd_taiwan/9bd6f0ebcd4180ad4a6630001608e386.jpg",
+    "isAlcoholicItem": false,
+    "isBundle": false,
+    "isSoldOut": false,
+    "menuCategory": {
+     "__typename": "RestaurantMenuCategory",
+     "id": "4337327",
+     "code": "Category#33978",
+     "title": "優惠推薦 Offers",
+     "masterCategory": {
+      "__typename": "RestaurantMasterCategory",
+      "id": "0"
+     }
+    },
+    "vat": null,
+    "title": "套餐-正宗韓式辣醬鷄腿堡 Gochujang Butter Spicy McCrispy Burger Meal",
+    "variations": [
+     {
+      "__typename": "RestaurantVariationData",
+      "choiceGroups": [
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "428671638",
+          "choiceProductID": "157379938",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "原味麥脆鷄腿(1塊) (棒腿或大腿部位恕不指定、更換)  Original Chicken McCrispy (1pc) (Drumsticks & thighs are distributed randomly)",
+          "price": 11,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "428671639",
+          "choiceProductID": "157379939",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "辣味麥脆鷄腿(1塊) (棒腿或大腿部位恕不指定、更換)  Spicy Chicken McCrispy (1pc) (Drumsticks & thighs are distributed randomly)",
+          "price": 11,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083280",
+          "choiceProductID": "158091790",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "韓式泡菜風味搖搖薯條 McShaker Fries Kimchi Flavor",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083281",
+          "choiceProductID": "157379940",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "薯條 (大) Fries (L)",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083283",
+          "choiceProductID": "157379942",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "麥克鷄塊(6塊) Chicken McNuggets (6pc)",
+          "price": 11,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789908",
+        "quantityMaximum": 1,
+        "quantityMinimum": 1,
+        "title": "配餐選擇 Side Order"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083284",
+          "choiceProductID": "157379943",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "無需加購薯條 No, thanks",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083285",
+          "choiceProductID": "157379944",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "薯條 (大) Fries (L)",
+          "price": 58,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083286",
+          "choiceProductID": "157379945",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "韓式泡菜風味搖搖薯條 McShaker Fries Kimchi Flavor",
+          "price": 58,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789909",
+        "quantityMaximum": 1,
+        "quantityMinimum": 1,
+        "title": "是否再加購薯條 Add Fries"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083287",
+          "choiceProductID": "157379946",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "韓式蜜柚氣泡飲 Korean Honey Yuzu Sparkling Drink",
+          "price": 20,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083288",
+          "choiceProductID": "157379947",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "金選美式咖啡(冰)(大) Large Select Blend Americano(Iced)",
+          "price": 49,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083289",
+          "choiceProductID": "157379948",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "金選美式咖啡(冰) Select Blend Americano(Iced)",
+          "price": 39,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083290",
+          "choiceProductID": "157379949",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "金選美式咖啡(熱) Select Blend Americano(Hot)",
+          "price": 39,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083291",
+          "choiceProductID": "157379950",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "金選那堤(冰) Select Blend Latte(Iced)",
+          "price": 49,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083292",
+          "choiceProductID": "157379951",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "金選那堤(熱) Select Blend Latte(Hot)",
+          "price": 49,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083293",
+          "choiceProductID": "157379952",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "焦糖奶茶(冰) Caramel Milk Tea (Iced)",
+          "price": 35,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083294",
+          "choiceProductID": "157379953",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "可口可樂 (中) Coca Cola (M)",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "420228023",
+          "choiceProductID": "157379954",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "檸檬風味紅茶(冰) (中) Lemon Flavored Black Tea(Iced) (M)",
+          "price": 5,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083296",
+          "choiceProductID": "157379955",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "雪碧 (中) Sprite (M)",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083297",
+          "choiceProductID": "157379956",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "可口可樂 Zero (中) Coke Zero (M)",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083298",
+          "choiceProductID": "157379957",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "台灣鮮榨柳丁汁 Taiwan Fresh Orange Juice",
+          "price": 35,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083299",
+          "choiceProductID": "157379958",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "冰蜂蜜紅茶 Iced Honey Black Tea",
+          "price": 25,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083300",
+          "choiceProductID": "157379959",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "冰蜂蜜奶茶 Iced Honey Milk Tea",
+          "price": 35,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083301",
+          "choiceProductID": "157379960",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "熱蜂蜜奶茶 Hot Honey Milk Tea",
+          "price": 35,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083302",
+          "choiceProductID": "157379961",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "經典那堤(熱) Latte(Hot)",
+          "price": 39,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083303",
+          "choiceProductID": "157379962",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "經典美式咖啡(熱) Americano(Hot)",
+          "price": 29,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083304",
+          "choiceProductID": "157379963",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "經典那堤(冰) Latte(Iced)",
+          "price": 39,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083305",
+          "choiceProductID": "157379964",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "經典美式咖啡(冰) Americano(Iced)",
+          "price": 29,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083306",
+          "choiceProductID": "157379965",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "無糖紅茶(冰) (中) Sugar-Free Black Tea(Iced) (M)",
+          "price": 7,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083307",
+          "choiceProductID": "157379966",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "無糖綠茶(冰) (中) Sugar-Free Green Tea(Iced) (M)",
+          "price": 7,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083308",
+          "choiceProductID": "157379967",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "紅茶(熱) Tea(Hot)",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "424242450",
+          "choiceProductID": "157379968",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "玉米湯 (大) Corn Soup (L)",
+          "price": 25,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083310",
+          "choiceProductID": "157379969",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "Evian 礦泉水 Evian Water",
+          "price": 17,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789910",
+        "quantityMaximum": 1,
+        "quantityMinimum": 1,
+        "title": "飲料 Drink"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083311",
+          "choiceProductID": "157379970",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "無需加價購 No, thanks",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "428671640",
+          "choiceProductID": "157379971",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "加購原味麥脆鷄腿(1塊) (棒腿或大腿部位恕不指定、更換)  Add on Original Chicken McCrispy (1pc) (Drumsticks & thighs are distributed randomly)",
+          "price": 79,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "428671641",
+          "choiceProductID": "157379972",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "加購辣味麥脆鷄腿(1塊) (棒腿或大腿部位恕不指定、更換)  Add on Spicy Chicken McCrispy (1pc) (Drumsticks & thighs are distributed randomly)",
+          "price": 79,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789911",
+        "quantityMaximum": 1,
+        "quantityMinimum": 1,
+        "title": "加價購產品 Add on Item"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083314",
+          "choiceProductID": "157379973",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "無需加價購 No, thanks",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "424013591",
+          "choiceProductID": "157379974",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "聯名托特包 Co-branded Tote Bag",
+          "price": 499,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "424013592",
+          "choiceProductID": "157379976",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "限定復古帽 Limited Edition Vintage Cap",
+          "price": 299,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "419608549",
+          "choiceProductID": "157379977",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "麥當勞隨身輕巧購物袋(薯條款) Foldable Reusable Bag (Fries)",
+          "price": 99,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "417788298",
+          "choiceProductID": "157379978",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "麥當勞隨身輕巧購物袋(大麥克款) Foldable Reusable Bag (Big Mac)",
+          "price": 99,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083315",
+          "choiceProductID": "157379979",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "塑膠袋 Plastic Bag",
+          "price": 3,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789912",
+        "quantityMaximum": 1,
+        "quantityMinimum": 1,
+        "title": "加價購產品 Add on Item"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083316",
+          "choiceProductID": "157379980",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "番茄醬包 Ketchup Packets",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083317",
+          "choiceProductID": "157379981",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "不要番茄醬包 No Ketchup Packet",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789913",
+        "quantityMaximum": 1,
+        "quantityMinimum": 0,
+        "title": "薯條醬包(若未點購薯條配餐，恕不提供薯條醬包，請勿點選下列醬包選項) *搖搖薯條配餐恕不提供蕃茄醬包 Fries Sauce (Served with Fries side order only)"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083319",
+          "choiceProductID": "157379983",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "醣醋醬包 Sweet Sour Sauce",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083320",
+          "choiceProductID": "157379984",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "蜂蜜芥末醬包 Honey Mustard Sauce",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083321",
+          "choiceProductID": "157379985",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "泰式香辣醬包 Thai Chili Sauce",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083322",
+          "choiceProductID": "157379986",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "不要醬包 No Sauce",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789914",
+        "quantityMaximum": 1,
+        "quantityMinimum": 0,
+        "title": "鷄塊醬包(若未點購鷄塊相關配餐，恕不提供鷄塊醬包，請勿點選下列醬包選項) Chicken McNuggets Sauce (Served with McNuggets side order only)"
+       },
+       {
+        "__typename": "RestaurantChoiceGroup",
+        "choices": [
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083323",
+          "choiceProductID": "157379987",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "番茄醬包 Ketchup Packets",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         },
+         {
+          "__typename": "RestaurantChoice",
+          "id": "416083324",
+          "choiceProductID": "157379988",
+          "imageUrl": "",
+          "isAlcoholicItem": false,
+          "isSoldOut": false,
+          "description": "",
+          "tags": null,
+          "title": "不要番茄醬包 No Ketchup Packet",
+          "price": 0,
+          "discountedPrice": null,
+          "quantityMaximum": 1,
+          "product": null
+         }
+        ],
+        "choiceGroupType": "CHOICE_GROUP",
+        "choiceSelectionUI": "RADIO",
+        "id": "34789915",
+        "quantityMaximum": 1,
+        "quantityMinimum": 0,
+        "title": "薯條醬包(若未點購薯條配餐，恕不提供薯條醬包，請勿點選下列醬包選項) *搖搖薯條配餐恕不提供蕃茄醬包 Fries Sauce (Served with Fries side order only)"
+       }
+      ],
+      "id": "160594762",
+      "code": "2|33978%68877",
+      "price": 255,
+      "title": "",
+      "containerPrice": null,
+      "discountedPrice": null,
+      "remoteCode": "2|33978%68877",
+      "unitPricingInfo": null
+     }
+    ],
+    "description": "套餐含正宗韓式辣醬鷄腿堡一份、配餐選擇與飲料選擇。 Comes with Side choice and beverage.",
+    "vendorCode": "test01",
+    "tags": null,
+    "dietaryAttributes": null,
+    "popularChoices": [
+     {
+      "__typename": "VariationPopularChoices",
+      "variationID": "160594762",
+      "choiceIDs": [
+       "416083322",
+       "416083317",
+       "416083314",
+       "416083284",
+       "416083311",
+       "416083280",
+       "416083283",
+       "416083324",
+       "416083307",
+       "416083297"
+      ]
+     }
+    ]
+   }
+  },
+  "extensions": {
+   "x-request-id": "8401260a-4ef9-48ca-93fd-89c815b40d83"
+  }
+ }
+}
