@@ -443,7 +443,7 @@ export function createServer(client: FoodpandaClient): McpServer {
     {
       title: "Refresh Session Token",
       description:
-        `Opens a browser window to ${region.webHost} so the user can log in to their ${region.countryLabel} account. Intercepts the session token from network requests and updates the server. Call this when: (1) other tools return a 'session token expired' or 'No session token configured' error, or (2) the user wants to switch accounts. The browser window is visible — the user logs in manually (handling any CAPTCHAs or MFA). Once logged in, the token is captured automatically and saved for future sessions. Requires a desktop session; on a headless server set FOODPANDA_HEADLESS=1 and expect to complete the login elsewhere.`,
+        `Opens a browser window to ${region.webHost} so the user can log in to their ${region.countryLabel} account. Intercepts the session token from network requests and updates the server. Call this when: (1) other tools return a 'session token expired' or 'No session token configured' error, or (2) the user wants to switch accounts. The browser window is visible — the user logs in manually (handling any CAPTCHAs or MFA). Once logged in, the token is captured automatically and saved for future sessions. Needs FOODPANDA_HEADLESS=0 in this server's env (the default is headless, which has no window to log in through); the tool returns an error saying so instead of waiting.`,
       inputSchema: z.object({
         timeout: z
           .number()

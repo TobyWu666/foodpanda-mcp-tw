@@ -1,28 +1,27 @@
-import { homedir } from "os";
 import { join } from "path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { getRegionConfig } from "./config.js";
+import { getRegionConfig, stateDir } from "./config.js";
 import { browserTransport } from "./browser-transport.js";
+import { persistedTokenProblem, type PersistedToken } from "./token-check.js";
 
-const STATE_DIR = process.env.FOODPANDA_STATE_DIR || join(homedir(), ".foodpanda-mcp");
-const TOKEN_DIR = STATE_DIR;
+const TOKEN_DIR = stateDir();
 const TOKEN_FILE = join(TOKEN_DIR, "token.json");
 const BROWSER_DATA_DIR = join(TOKEN_DIR, "browser-data");
 
-interface PersistedToken {
-  token: string;
-  savedAt: string;
-  region?: string;
-}
-
+/**
+ * The saved token, if it belongs to this region and has not expired.
+ * A rejected file is left on disk (the next login overwrites it) and the reason is logged.
+ */
 export function loadPersistedToken(): string | null {
   try {
     if (!existsSync(TOKEN_FILE)) return null;
     const data = JSON.parse(readFileSync(TOKEN_FILE, "utf-8")) as PersistedToken;
-    if (data && typeof data.token === "string" && data.token.length > 0) {
-      return data.token;
+    const problem = persistedTokenProblem(data, getRegionConfig().apiBase);
+    if (problem) {
+      console.error(`foodpanda-mcp: ignoring saved token (${problem}); log in again with refresh_token`);
+      return null;
     }
-    return null;
+    return data.token;
   } catch {
     return null;
   }
@@ -60,6 +59,14 @@ export async function refreshTokenViaBrowser(
 ): Promise<string> {
   const cfg = getRegionConfig();
   const apiHost = new URL(cfg.apiBase).host;
+
+  // A headless browser has no window to log in through: the call would just time out.
+  if (cfg.headless) {
+    throw new Error(
+      "Logging in needs a visible browser window, but FOODPANDA_HEADLESS is on (the default). " +
+        "Set FOODPANDA_HEADLESS=0 in this MCP server's env and restart it, then call refresh_token again."
+    );
+  }
 
   const context = await browserTransport().getContext();
   const page = context.pages()[0] || (await context.newPage());

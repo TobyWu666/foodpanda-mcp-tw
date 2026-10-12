@@ -3,8 +3,20 @@
  *
  * Upstream (johnwhoyou/foodpanda-mcp) hardcodes foodpanda.ph. This fork makes
  * the region a first-class, env-overridable setting so the same server can run
- * against foodpanda.hk (or any other fd-api country) without editing sources.
+ * against foodpanda.com.tw (the default), foodpanda.hk or any other fd-api
+ * country without editing sources.
+ *
+ * Every tw value below was read off traffic captured on www.foodpanda.com.tw
+ * while logged in. Values the capture did not show are left unset, not guessed.
  */
+
+import { homedir } from "os";
+import { join } from "path";
+
+/** Where the token file and the browser profile live (FOODPANDA_STATE_DIR, default ~/.foodpanda-mcp). */
+export function stateDir(env: Record<string, string | undefined> = process.env): string {
+  return env.FOODPANDA_STATE_DIR || join(homedir(), ".foodpanda-mcp");
+}
 
 export interface RegionConfig {
   /** fd-api host for the region, no trailing slash. */
@@ -13,8 +25,13 @@ export interface RegionConfig {
   webHost: string;
   /** Locale sent to the REST + GraphQL APIs, e.g. en_HK. */
   locale: string;
-  /** foodpanda language id (1 = primary/en in every region checked so far). */
-  languageId: number;
+  /**
+   * foodpanda language id, sent as x-pd-language-id and in GraphQL variables.
+   * null = not known for this region: the header and variable are left out.
+   */
+  languageId: number | null;
+  /** x-global-entity-id header value, e.g. FP_TW. "" = not known for this region. */
+  globalEntityId: string;
   /** ISO currency code for the basket, e.g. HKD. */
   currency: string;
   /** Display name used in tool descriptions and error messages. */
@@ -70,6 +87,14 @@ const PH_VENDOR_LIST_HASH =
   "ee02950ba8ef08427ef979e3954e3c1367c5636b18d6fc8a850ebf5fbf49d999";
 
 const PRESETS: Record<string, Partial<RegionConfig>> = {
+  tw: {
+    apiBase: "https://tw.fd-api.com",
+    webHost: "https://www.foodpanda.com.tw",
+    locale: "zh_TW",
+    currency: "TWD",
+    globalEntityId: "FP_TW",
+    countryLabel: "foodpanda Taiwan",
+  },
   hk: {
     apiBase: "https://hk.fd-api.com",
     webHost: "https://www.foodpanda.hk",
@@ -84,20 +109,25 @@ const PRESETS: Record<string, Partial<RegionConfig>> = {
     locale: "en_PH",
     languageId: 1,
     currency: "PHP",
+    globalEntityId: "FP_PH",
     countryLabel: "foodpanda Philippines",
     searchHash: PH_SEARCH_HASH,
     vendorListHash: PH_VENDOR_LIST_HASH,
   },
 };
 
-function envFlag(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
+type Env = Record<string, string | undefined>;
+
+function envFlag(env: Env, name: string, fallback: boolean): boolean {
+  const raw = env[name];
   if (raw === undefined || raw === "") return fallback;
   return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
 }
 
-export function loadRegionConfig(): RegionConfig {
-  const country = (process.env.FOODPANDA_COUNTRY || "hk").trim().toLowerCase();
+export const DEFAULT_COUNTRY = "tw";
+
+export function loadRegionConfig(env: Env = process.env): RegionConfig {
+  const country = (env.FOODPANDA_COUNTRY || DEFAULT_COUNTRY).trim().toLowerCase();
   const preset = PRESETS[country];
 
   if (!preset) {
@@ -107,8 +137,8 @@ export function loadRegionConfig(): RegionConfig {
     );
   }
 
-  const apiBase = (process.env.FOODPANDA_API_BASE || preset.apiBase || "").replace(/\/+$/, "");
-  const webHost = (process.env.FOODPANDA_WEB_HOST || preset.webHost || "").replace(/\/+$/, "");
+  const apiBase = (env.FOODPANDA_API_BASE || preset.apiBase || "").replace(/\/+$/, "");
+  const webHost = (env.FOODPANDA_WEB_HOST || preset.webHost || "").replace(/\/+$/, "");
 
   if (!apiBase || !webHost) {
     throw new Error(
@@ -116,29 +146,34 @@ export function loadRegionConfig(): RegionConfig {
     );
   }
 
-  const languageId = parseInt(
-    process.env.FOODPANDA_LANGUAGE_ID || String(preset.languageId ?? 1),
-    10
-  );
+  const rawLanguageId = env.FOODPANDA_LANGUAGE_ID?.trim();
+  let languageId: number | null = preset.languageId ?? null;
+  if (rawLanguageId) {
+    languageId = parseInt(rawLanguageId, 10);
+    if (!Number.isFinite(languageId)) {
+      throw new Error(`FOODPANDA_LANGUAGE_ID must be an integer, got '${rawLanguageId}'.`);
+    }
+  }
 
   return {
     apiBase,
     webHost,
-    locale: process.env.FOODPANDA_LOCALE || preset.locale || "en_PH",
-    languageId: Number.isFinite(languageId) ? languageId : 1,
-    currency: process.env.FOODPANDA_CURRENCY || preset.currency || "PHP",
+    locale: env.FOODPANDA_LOCALE || preset.locale || "en_PH",
+    languageId,
+    globalEntityId: (env.FOODPANDA_GLOBAL_ENTITY_ID || preset.globalEntityId || "").trim(),
+    currency: env.FOODPANDA_CURRENCY || preset.currency || "PHP",
     countryLabel: preset.countryLabel || country.toUpperCase(),
-    searchHash: process.env.FOODPANDA_GQL_SEARCH_HASH || preset.searchHash || "",
-    vendorListHash: process.env.FOODPANDA_GQL_VENDOR_LIST_HASH || preset.vendorListHash || "",
-    browserTransport: envFlag("FOODPANDA_BROWSER_TRANSPORT", true),
-    headless: envFlag("FOODPANDA_HEADLESS", true),
+    searchHash: env.FOODPANDA_GQL_SEARCH_HASH || preset.searchHash || "",
+    vendorListHash: env.FOODPANDA_GQL_VENDOR_LIST_HASH || preset.vendorListHash || "",
+    browserTransport: envFlag(env, "FOODPANDA_BROWSER_TRANSPORT", true),
+    headless: envFlag(env, "FOODPANDA_HEADLESS", true),
     browserChannel:
-      process.env.FOODPANDA_BROWSER_CHANNEL === undefined
+      env.FOODPANDA_BROWSER_CHANNEL === undefined
         ? "chromium"
-        : process.env.FOODPANDA_BROWSER_CHANNEL.trim(),
-    browserExecutable: (process.env.FOODPANDA_BROWSER_EXECUTABLE || "").trim(),
-    proxy: (process.env.FOODPANDA_PROXY || "").trim(),
-    autoXvfb: envFlag("FOODPANDA_XVFB", true),
+        : env.FOODPANDA_BROWSER_CHANNEL.trim(),
+    browserExecutable: (env.FOODPANDA_BROWSER_EXECUTABLE || "").trim(),
+    proxy: (env.FOODPANDA_PROXY || "").trim(),
+    autoXvfb: envFlag(env, "FOODPANDA_XVFB", true),
   };
 }
 

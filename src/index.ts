@@ -5,13 +5,24 @@ import { FoodpandaClient } from "./foodpanda-client.js";
 import { createServer } from "./server.js";
 import { loadPersistedToken } from "./token-manager.js";
 import { getRegionConfig } from "./config.js";
+import { tokenProblem } from "./token-check.js";
 
-// Region (endpoints, locale, currency, GraphQL hashes) — FOODPANDA_COUNTRY=hk by default.
+// Region (endpoints, locale, currency, GraphQL hashes) — FOODPANDA_COUNTRY=tw by default.
 const cfg = getRegionConfig();
 
-// Token loading priority: persisted file > env var > null (tokenless startup)
-const sessionToken =
-  loadPersistedToken() || process.env.FOODPANDA_SESSION_TOKEN || null;
+function envToken(): string | null {
+  const token = (process.env.FOODPANDA_SESSION_TOKEN || "").trim();
+  if (!token) return null;
+  const problem = tokenProblem(token);
+  if (problem) {
+    console.error(`foodpanda-mcp: ignoring FOODPANDA_SESSION_TOKEN (${problem})`);
+    return null;
+  }
+  return token;
+}
+
+// Token loading priority: persisted file (same region, not expired) > env var > null (tokenless startup)
+const sessionToken = loadPersistedToken() || envToken();
 
 const latitude = parseFloat(process.env.FOODPANDA_LATITUDE || "");
 const longitude = parseFloat(process.env.FOODPANDA_LONGITUDE || "");
@@ -20,14 +31,15 @@ if (isNaN(latitude) || isNaN(longitude)) {
   console.error(
     "Error: FOODPANDA_LATITUDE and FOODPANDA_LONGITUDE environment variables are required.\n" +
       "These should be the coordinates of your delivery address.\n" +
-      "Example: FOODPANDA_LATITUDE=22.2793 FOODPANDA_LONGITUDE=114.1628"
+      "Example: FOODPANDA_LATITUDE=25.0330 FOODPANDA_LONGITUDE=121.5654"
   );
   process.exit(1);
 }
 
 console.error(
   `foodpanda-mcp: region=${cfg.countryLabel} api=${cfg.apiBase} web=${cfg.webHost} ` +
-    `locale=${cfg.locale} currency=${cfg.currency} transport=${cfg.browserTransport ? "browser" : "fetch"}`
+    `locale=${cfg.locale} currency=${cfg.currency} entity=${cfg.globalEntityId || "(unset)"} ` +
+    `language_id=${cfg.languageId ?? "(unset)"} transport=${cfg.browserTransport ? "browser" : "fetch"}`
 );
 
 const missing: string[] = [];
@@ -38,7 +50,7 @@ if (missing.length > 0) {
     `foodpanda-mcp: note — not set: ${missing.join(", ")}.\n` +
       "  Those Apollo persisted-query hashes are needed before the matching tool works.\n" +
       "  Harvest them from a browser that clears PerimeterX:\n" +
-      "  FOODPANDA_COUNTRY=hk FOODPANDA_HEADLESS=0 node scripts/discover-hashes.mjs"
+      "  FOODPANDA_HEADLESS=0 node scripts/discover-hashes.mjs"
   );
 }
 
