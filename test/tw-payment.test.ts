@@ -98,6 +98,8 @@ test("checkout response: success values are matched whole and in any key style",
     { id: "o", paymentStatus: "paid" },
     { id: "o", order: { orderState: "Confirmed" } },
     { id: "o", data: { result: "completed" } },
+    { id: "o", payment: { status: "paid" }, vouchers: [{ code: "x" }] },
+    { id: "o", data: { order: { status: "confirmed" } } },
   ]) {
     assert.doesNotThrow(() => parseCheckoutResponse(resp), JSON.stringify(resp));
   }
@@ -138,6 +140,14 @@ const PENDING_SHAPES: Array<[string, unknown]> = [
   ["transactionStatus INIT", { id: "p15", status: "success", transactionStatus: "INIT" }],
   ["requiresAction camelCase", { id: "p16", status: "success", payment: { requiresAction: true } }],
   ["isPaid false", { id: "p17", status: "success", isPaid: false }],
+  // Third review: app deep links count as links
+  ["line:// deep link", { id: "d1", status: "success", payment: { info: "line://pay/payment/x" } }],
+  ["intent:// deep link", { id: "d2", status: "success", payment: { open: "intent://pay#Intent;scheme=line;end" } }],
+  ["custom scheme", { id: "d3", status: "success", payment: { open: "linepay-app://checkout?x=1" } }],
+  // Third review: a success on something other than the order is not a success
+  ["success only on a voucher", { id: "s1", vouchers: [{ status: "success" }] }],
+  ["success only on an incentive", { id: "s2", incentive: { status: "accepted" } }],
+  ["success only on an item", { id: "s3", order: { items: [{ status: "confirmed" }] } }],
 ];
 for (const [label, resp] of PENDING_SHAPES) {
   test(`checkout response: ${label} is 'status unknown', not a success`, () => {

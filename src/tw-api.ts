@@ -906,29 +906,47 @@ interface CheckoutSignals {
   pending: string[];
 }
 
-/** Walk the whole body, every depth and array, collecting success and pending signs. */
-function checkoutSignals(body: unknown, path = "", out: CheckoutSignals = { success: [], pending: [] }): CheckoutSignals {
+/** Objects whose status speaks for the order itself; a status on vouchers, items or incentives does not. */
+const ORDER_SCOPE_KEYS = new Set(["order", "payment", "data"]);
+
+/** Any URL: https, or an app deep link such as line://, intent:// or another custom scheme. */
+const LINK_VALUE = /^(?:[a-z][a-z0-9+.-]*:\/\/|intent:)/i;
+
+/**
+ * Walk the whole body, every depth and array, collecting pending signs everywhere,
+ * and success statuses only at the top level or inside order / payment / data.
+ */
+function checkoutSignals(
+  body: unknown,
+  path = "",
+  out: CheckoutSignals = { success: [], pending: [] },
+  orderScope = true
+): CheckoutSignals {
   if (Array.isArray(body)) {
-    body.forEach((v, i) => checkoutSignals(v, `${path}[${i}]`, out));
+    body.forEach((v, i) => checkoutSignals(v, `${path}[${i}]`, out, false));
     return out;
   }
   if (!body || typeof body !== "object") {
-    if (typeof body === "string" && /^https?:\/\//i.test(body.trim())) out.pending.push(`${path} is a link`);
+    if (typeof body === "string" && LINK_VALUE.test(body.trim())) out.pending.push(`${path} is a link`);
     return out;
   }
   for (const [rawKey, value] of Object.entries(body as Record<string, unknown>)) {
     const key = normaliseKey(rawKey);
     const here = path ? `${path}.${rawKey}` : rawKey;
     if (STATUS_KEY.test(key)) {
-      if (typeof value === "string" && SUCCESS_VALUE.test(value.trim())) out.success.push(`${here}=${value}`);
-      else if (value !== null && value !== undefined) out.pending.push(`${here}=${JSON.stringify(value)}`);
+      if (typeof value === "string" && SUCCESS_VALUE.test(value.trim())) {
+        // A success elsewhere (a voucher, an item) says nothing about the order; it is neither.
+        if (orderScope) out.success.push(`${here}=${value}`);
+      } else if (value !== null && value !== undefined) {
+        out.pending.push(`${here}=${JSON.stringify(value)}`);
+      }
     }
     if (PENDING_KEY.test(key) && !isEmpty(value)) out.pending.push(here);
     if ((key.startsWith("requires_") || key === "is_pending" || key === "pending") && value === true) {
       out.pending.push(`${here}=true`);
     }
     if ((key === "paid" || key === "is_paid") && value === false) out.pending.push(`${here}=false`);
-    checkoutSignals(value, here, out);
+    checkoutSignals(value, here, out, orderScope && ORDER_SCOPE_KEYS.has(key));
   }
   return out;
 }
@@ -938,10 +956,11 @@ function checkoutSignals(body: unknown, path = "", out: CheckoutSignals = { succ
  *
  * UNVERIFIED FOR TW: no tw checkout response has ever been captured, so this
  * cannot match a known success shape. It accepts an answer only when it has an
- * order code, at least one status / result / state field (any depth, any key
- * style) saying success / paid / completed / confirmed / accepted, and no
+ * order code, at least one status / result / state field (top level or inside
+ * order / payment / data, any key style) saying success / paid / completed / confirmed / accepted, and no
  * sign of an unfinished step anywhere: no other status value (pending, CREATED,
- * NEW, INIT, a status object, ...), no link, redirect, action, deeplink, webview
+ * NEW, INIT, a status object, ...), no link (http(s) or an app deep link such as
+ * line:// or intent://), redirect, action, deeplink, webview
  * or form, no requires_* / is_pending flag, no paid: false. Everything else is
  * "status unknown", which empties the cart and locks ordering until the user
  * has checked the app. The first real order may well land there; record its
