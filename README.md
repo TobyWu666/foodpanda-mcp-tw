@@ -254,7 +254,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 信用卡、全支付及其他付款方式**不支援**。
 - 指定不支援或帳號上不可用的方式時，會回傳明確錯誤（錯誤代碼 `UNSUPPORTED_PAYMENT_METHOD`，
   訊息會列出可用的方式並註明「沒有改用其他付款方式」），**絕不會**默默換成別的方式。
-- **只能用已綁定的 LINE Pay。** 帳號沒有綁定 LINE Pay 時，`linepay` 會被拒絕（原因：no bound LINE Pay account），
+- **只能用已綁定的 LINE Pay。** 帳號沒有綁定 LINE Pay 時，`linepay` 會被拒絕（錯誤：`LINE Pay not bound`），
   不會改走需要 LINE app 的流程，也不會改用現金。
 - `list_payment_methods`（不需參數，購物車不能是空的）會列出：
   - `available`：這次訂單可用的 `linepay`／`cash`
@@ -275,6 +275,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
    - `payment_method`（必填）：`linepay` 或 `cash`
    - `address_id`（選填，整數）：帳號只有一個已存地址時自動使用；有好幾個時必填，沒填的話錯誤訊息會列出所有地址讓你選
    - `delivery_instructions`（選填，最多 300 字）：給外送員的備註
+   - `previous_order_checked_in_app`（選填，true/false）：只在上一次 `place_order` 回報「狀態不明」之後使用，見下方
 
    回傳完整訂單內容：品項、數量、選項、小計、外送費、總金額、付款方式、外送地址，以及一組**一次性確認碼**
    `confirmation_code`（5 分鐘內有效）。
@@ -287,6 +288,13 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 購物車、價格、付款方式、地址任何一項改變，確認碼就失效；再呼叫一次 `prepare_order` 也會讓前一組碼失效。
 - server 重新啟動後，所有確認碼都失效。
 - 結帳**絕不重試**。回應只要不是明確成功（例如連線中斷、LINE Pay 要求跳轉），server 都會回報「狀態不明，請先到 foodpanda app 確認」，不要再呼叫 `place_order`。
+- **結果不明後的鎖定：** 一旦 `place_order` 回報「狀態不明」，購物車會被清空，`prepare_order` 也會拒絕執行，
+  直到它帶著 `previous_order_checked_in_app: true` 被呼叫。AI **只有在你確認過 foodpanda app、而且仍然要再下一單**時才可以設這個值，
+  不能自己設。這個鎖只存在記憶體裡，server 重新啟動就會解除，所以重啟後也請先確認 app 再下單。
+- **成功的判定很嚴格：** 結帳回應裡只要還有任何待處理的步驟，就不算成功。因此第一筆真的成功的訂單也**可能**被回報為「狀態不明」，
+  這是刻意偏向安全的做法，請到 app 確認即可。
+- **金額或付款方式不符：** 如果 foodpanda 結帳回應的總金額或付款方式和 `prepare_order` 鎖定的不同，結果會多一個以 `MISMATCH:` 開頭的
+  `attention` 欄位，AI 必須立刻告訴你，請到 app 檢查這筆訂單。
 
 tool 說明裡已明確寫：AI 必須先把 `prepare_order` 的內容完整給你看，取得你明確同意後，才能呼叫 `place_order`。
 
@@ -379,6 +387,7 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 9. **實際扣款金額可能和 `prepare_order` 顯示的不同。** 外送費與總金額是用已存地址的座標計算的，
    沒有帶入完整的已存地址資料，foodpanda 結帳時算出的金額可能有差。
    **建議第一筆真實訂單用小額、現金付款**，並比對 `prepare_order` 的總金額和 foodpanda app 上的實際金額。
+   結帳回應若報出不同的總金額或付款方式，結果會帶 `MISMATCH` 提醒。
 10. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
 11. **只在台灣驗證。** `hk`、`ph` preset 可以載入，但瀏覽與購物車照台灣網站的格式寫，不保證可用。
 
