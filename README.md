@@ -188,7 +188,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 | 變數 | 預設 | 說明 |
 |---|---|---|
 | `FOODPANDA_HEADLESS` | `1`（開） | 瀏覽器不顯示視窗。**要用 `refresh_token` 登入必須設為 `0`**，否則登入會直接回錯誤。 |
-| `FOODPANDA_STATE_DIR` | `~/.foodpanda-mcp` | 放 `token.json` 與瀏覽器設定檔 `browser-data/` |
+| `FOODPANDA_STATE_DIR` | `~/.foodpanda-mcp` | 放 `token.json`、瀏覽器設定檔 `browser-data/`，以及下單狀態不明時的鎖定檔 `order-check-required.json` |
 | `FOODPANDA_SESSION_TOKEN` | 未設定 | 自行提供 token（不建議，見下方）。過期的會被忽略。 |
 
 ### 瀏覽器與網路（進階）
@@ -290,9 +290,12 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 結帳**絕不重試**。回應只要不是明確成功（例如連線中斷、LINE Pay 要求跳轉），server 都會回報「狀態不明，請先到 foodpanda app 確認」，不要再呼叫 `place_order`。
 - **結果不明後的鎖定：** 一旦 `place_order` 回報「狀態不明」，購物車會被清空，`prepare_order` 也會拒絕執行，
   直到它帶著 `previous_order_checked_in_app: true` 被呼叫。AI **只有在你確認過 foodpanda app、而且仍然要再下一單**時才可以設這個值，
-  不能自己設。這個鎖只存在記憶體裡，server 重新啟動就會解除，所以重啟後也請先確認 app 再下單。
-- **成功的判定很嚴格：** 結帳回應裡只要還有任何待處理的步驟，就不算成功。因此第一筆真的成功的訂單也**可能**被回報為「狀態不明」，
-  這是刻意偏向安全的做法，請到 app 確認即可。
+  不能自己設。這個鎖存在 `$FOODPANDA_STATE_DIR/order-check-required.json`（權限 0600，只記錄時間和固定的原因，沒有訂單內容或個資），
+  所以 server 或 client 重新啟動後鎖**仍然有效**。帶 `previous_order_checked_in_app: true` 呼叫 `prepare_order` 會刪除這個檔案、解除鎖定。
+- **成功的判定很嚴格：** 目前還沒有錄到台灣站真正成功的結帳回應，所以只有回應裡同時有訂單編號、明確的成功狀態、
+  而且沒有任何待處理步驟（跳轉、連結、pending 狀態等）時才算成功，其他一律回報「狀態不明」。
+  因此**第一筆真實訂單即使成功了，也很可能顯示「狀態不明」**。這是刻意偏向安全的設計，請到 app 確認即可；
+  等錄到台灣站真正的成功回應後會再調整。
 - **金額或付款方式不符：** 如果 foodpanda 結帳回應的總金額或付款方式和 `prepare_order` 鎖定的不同，結果會多一個以 `MISMATCH:` 開頭的
   `attention` 欄位，AI 必須立刻告訴你，請到 app 檢查這筆訂單。
 
@@ -301,11 +304,14 @@ tool 說明裡已明確寫：AI 必須先把 `prepare_order` 的內容完整給�
 ### 最重要的一條
 
 > **Never add place_order to your client's auto-approve / always-allow list.** The confirmation
-> code stops stale or changed orders, but the agent can read the code, so only your client's
-> per-call approval prompt guarantees a human said yes.
+> code stops stale or changed orders, but the agent can read the code, and after an order with an
+> unknown outcome the agent can also lift the check-the-app lock itself
+> (previous_order_checked_in_app). Only your client's per-call approval prompt guarantees a human
+> said yes.
 
 **絕對不要把 `place_order` 加進任何 client 的自動核准／一律允許清單。** 確認碼能擋下過期或內容被改過的訂單，
-但 AI 自己讀得到確認碼，所以它**無法證明是你本人同意的**。真正保證「有人說好」的，只有 client
+但 AI 自己讀得到確認碼；訂單狀態不明之後，AI 也能自己帶 `previous_order_checked_in_app` 解除「先確認 app」的鎖。
+所以這些機制都**無法證明是你本人同意的**。真正保證「有人說好」的，只有 client
 每次呼叫 `place_order` 前跳出來問你的那個確認視窗。
 
 - Claude Code：不要放進 `permissions.allow`，詢問時不要選「不再詢問」。
