@@ -205,3 +205,84 @@ test("--check passes on the masker's own output, including against the raw captu
   const { masked } = maskCapture(raw);
   assert.deepEqual(checkFixture(masked, raw), []);
 });
+
+// --- Gaps found in the second review ---------------------------------------------------------
+
+// Shape of GET /api/v5/customers/addresses: the wrapper key says nothing about addresses.
+const savedAddresses = {
+  data: {
+    items: [
+      {
+        id: 4242,
+        title: "王小明的家",
+        label: "Home",
+        district: "信義區",
+        intercom: "B2",
+        address_line1: "松仁路",
+        address_line2: "100號",
+        latitude: 25.03518,
+        longitude: 121.56781,
+        is_selected: true,
+      },
+    ],
+  },
+};
+
+test("5. saved-address lists are masked by the objects' own fields", () => {
+  const { masked } = maskCapture(savedAddresses);
+  const out = JSON.stringify(masked);
+  for (const leak of ["王小明的家", "Home", "信義區", "B2", "松仁路", "100號", "25.03518", "121.56781"]) {
+    assert.ok(!out.includes(leak), `still contains ${leak}`);
+  }
+  assert.equal(masked.data.items[0].id, 4242);
+  assert.equal(masked.data.items[0].is_selected, true);
+});
+
+test("5. redactForLog drops saved-address objects whole", () => {
+  const out = redactForLog(savedAddresses);
+  for (const leak of ["王小明的家", "信義區", "B2", "松仁路"]) assert.ok(!out.includes(leak), `still contains ${leak}`);
+});
+
+test("5. --check flags an address object left unmasked under any key", () => {
+  assert.ok(checkFixture(savedAddresses).some((p) => p.kind === "address object"));
+  assert.ok(detectLeaks(savedAddresses).some((p) => p.kind === "address object"));
+});
+
+test("6. non-JSON HAR bodies (HTML pages) are dropped", () => {
+  const page = {
+    log: { entries: [{ response: { content: {
+      mimeType: "text/html; charset=utf-8",
+      text: '<html><script>window.__USER__={"greeting":"嗨，小明"}</script></html>',
+    } } }] },
+  };
+  const { masked } = maskCapture(page);
+  assert.equal(masked.log.entries[0].response.content.text, "[REDACTED:body]");
+  assert.ok(detectLeaks(page).some((p) => p.kind.endsWith("body")));
+  assert.deepEqual(checkFixture(masked), []);
+});
+
+test("6. JSON and form bodies are still kept", () => {
+  const { masked } = maskCapture(har);
+  assert.notEqual(masked.log.entries[0].response.content.text, "[REDACTED:body]");
+  assert.notEqual(masked.log.entries[0].request.postData.text, "[REDACTED:body]");
+});
+
+test("7. coordinates written as text or in URL paths are masked", () => {
+  const { masked } = maskCapture({
+    pin: "25.12345,121.54321",
+    url: "https://tw.fd-api.com/geo/25.12345,121.54321/vendors",
+    rating: "4.56789",
+  });
+  const out = JSON.stringify(masked);
+  assert.ok(!out.includes("25.12345"));
+  assert.ok(!out.includes("121.54321"));
+  assert.equal(masked.rating, "4.56789");
+  assert.match(masked.url, /^https:\/\/tw\.fd-api\.com\/geo\/.+\/vendors$/);
+  const leaks = detectLeaks({ pin: "25.12345,121.54321", url: "https://x.test/geo/25.12345/121.54321" });
+  assert.equal(leaks.filter((l) => l.kind === "coordinate").length, 2);
+  assert.ok(!redactForLog("no vendors near 25.12345,121.54321").includes("25.12345"));
+});
+
+test("English addresses with several commas are detected", () => {
+  assert.ok(detectLeaks({ a: "No. 7, Sec. 5, Xinyi Rd., Xinyi Dist." }).some((l) => l.kind === "address"));
+});

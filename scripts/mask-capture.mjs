@@ -15,7 +15,11 @@
 //     inner field is called (formatted_customer_address, district, label, intercom, …)
 //   - coordinates: latitude/longitude (also `customer-latitude` headers etc.) are replaced
 //     with a fixed public landmark (Taipei 101)
+//   - address objects found by their own fields (address_line1, intercom, …), e.g. the saved
+//     address list, which comes back as `data.items[]`
+//   - GPS-precision coordinates inside Taiwan written in text ("25.12345,121.54321", URL paths)
 //   - URLs (query, path and #fragment) and url-encoded form bodies, field by field
+//   - HAR bodies that are not JSON or a form (HTML pages, scripts) are dropped entirely
 // Keys are matched exactly (after lowercasing and dropping `_`/`-`), so restaurant and dish
 // names, prices and ids stay intact. Free text is also scanned for emails, Taiwan phone
 // numbers and JWTs.
@@ -86,6 +90,22 @@ const isLngKey = (k) => LNG_KEYS.has(k) || k.endsWith("longitude");
 // name (foodpanda uses `formatted_customer_address`, `district`, `city`, `title`, `label`,
 // `intercom`, `structure`, …). Numbers and booleans are kept; coordinates get the placeholder.
 const isAddressKey = (k) => k.includes("address");
+// Saved-address lists come back as `data.items[]`, so an address is also recognised by its own
+// fields: any of these marks the whole object as an address. (Vendor objects use `address`
+// and `address_line2` for their public address, so those two are not markers.)
+const ADDRESS_MARKERS = new Set([
+  "addressline1", "addressline3", "addressline4", "addressline5", "addressother",
+  "formattedaddress", "formattedcustomeraddress", "fulladdress", "intercom", "flatnumber",
+  "entrance", "deliveryinstructions",
+]);
+export const isAddressShaped = (obj) =>
+  obj !== null && typeof obj === "object" && !Array.isArray(obj) &&
+  Object.keys(obj).some((k) => ADDRESS_MARKERS.has(norm(k)));
+// A number with GPS precision inside a string: "25.12345,121.54321", /geo/25.12345/121.54321
+const COORD_IN_TEXT_RE = /(?<![\d.])-?\d{2,3}\.\d{4,}(?![\d.])/g;
+// Only these HAR bodies are kept; HTML pages, scripts and the like can embed the logged-in
+// user's data and are never needed as fixtures.
+const KEEP_BODY_RE = /json|x-www-form-urlencoded/i;
 
 const JWT_RE = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
@@ -182,6 +202,12 @@ export function createMasker() {
     replace(JWT_RE, "secret");
     replace(EMAIL_RE, "email");
     replace(TW_PHONE_RE, "phone");
+    out = out.replace(COORD_IN_TEXT_RE, (m) => {
+      const n = Number(m);
+      if (!isTaiwanCoordinate(n)) return m;
+      record(path, "coordinate", m);
+      return String(n <= 25.4 ? PLACEHOLDER_LAT : PLACEHOLDER_LNG);
+    });
     return out;
   }
 
@@ -293,6 +319,13 @@ export function createMasker() {
         const { encoding, ...rest } = node;
         return maskNode({ ...rest, text: decoded }, ancestors, path);
       }
+      // HAR request/response bodies that are not JSON or a form are dropped.
+      if (typeof node.text === "string" && typeof node.mimeType === "string" &&
+          !KEEP_BODY_RE.test(node.mimeType) && node.text !== "" && !isPlaceholder(node.text)) {
+        record(`${path}.text`, "body", undefined);
+        node = { ...node, text: "[REDACTED:body]" };
+      }
+      if (isAddressShaped(node)) return maskAddress(node, path);
       const out = {};
       for (const [k, v] of Object.entries(node)) {
         out[k] = maskKeyValue(k, v, ancestors, path ? `${path}.${k}` : k);
@@ -322,7 +355,7 @@ export function maskCapture(data) {
 const TW_ADDRESS_RES = [
   /[\u4e00-\u9fff]{1,10}(?:路|街|大道)(?:[一二三四五六七八九十\d]+段)?(?:[\d一二三四五六七八九十]+巷)?(?:[\d一二三四五六七八九十]+弄)?\s*\d+(?:-\d+)?(?:之\d+)?\s*號/,
   /[\u4e00-\u9fff]{1,3}[市縣][\u4e00-\u9fff]{1,3}[區鄉鎮市]/,
-  /\bNo\.?\s*\d+[^,]{0,20},?\s*(?:Ln\.?|Lane|Aly\.?|Alley|Sec\.?|Section)?[^,]{0,30}\b(?:Rd|Road|St|Street|Ave|Avenue|Blvd|Boulevard)\b/i,
+  /\bNo\.?\s*\d+(?:-\d+)?\b[^\n"]{0,60}?\b(?:Rd|Road|St|Street|Ave|Avenue|Blvd|Boulevard)\b/i,
 ];
 // A secret left as a form/fragment field: password=hunter2, access_token=abc
 const SECRET_PAIR_RE = /(?:^|[?&#;\s])(?:password|passwd|pwd|otp|access_token|refresh_token|id_token|token|session_id)=(?!%5BREDACTED|\[REDACTED)[^&\s#]+/i;
@@ -366,7 +399,12 @@ export function detectLeaks(data) {
       // The global regexes keep state between .test() calls.
       for (const re of [JWT_RE, BEARER_RE, EMAIL_RE, TW_PHONE_RE]) re.lastIndex = 0;
     }
-    if (/^-?\d+\.\d+$/.test(trimmed) && isTaiwanCoordinate(Number(trimmed))) add(path, "coordinate");
+    for (const m of s.match(COORD_IN_TEXT_RE) ?? []) {
+      if (isTaiwanCoordinate(Number(m))) {
+        add(path, "coordinate");
+        break;
+      }
+    }
   }
 
   function walk(node, path) {
@@ -385,6 +423,15 @@ export function detectLeaks(data) {
       }
       if (typeof node.text === "string" && node.encoding === "base64") {
         return walk({ ...node, encoding: undefined, text: Buffer.from(node.text, "base64").toString("utf8") }, path);
+      }
+      if (typeof node.text === "string" && typeof node.mimeType === "string" &&
+          !KEEP_BODY_RE.test(node.mimeType) && node.text !== "" && !/^\[REDACTED/.test(node.text)) {
+        add(`${path}.text`, `${node.mimeType} body`);
+      }
+      // An address object with any readable text left in it, whatever it is nested under.
+      if (isAddressShaped(node) &&
+          Object.values(node).some((v) => typeof v === "string" && v !== "" && !/^\[REDACTED/.test(v))) {
+        add(path, "address object");
       }
       for (const [k, v] of Object.entries(node)) walk(v, path ? `${path}.${k}` : k);
     }

@@ -28,6 +28,14 @@ const norm = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
 // `address`, `delivery_address`, `formatted_customer_address`, `address_line4`, … are dropped
 // whole, whatever fields they contain (district, label, intercom, …).
 const isAddressKey = (k: string) => k.includes("address");
+// Saved-address lists come back as `data.items[]`, so an object with any of these fields is
+// an address and is dropped whole, whatever key it sits under.
+const ADDRESS_MARKERS = new Set([
+  "addressline1", "addressline3", "addressline4", "addressline5", "addressother",
+  "formattedaddress", "formattedcustomeraddress", "fulladdress", "intercom", "flatnumber",
+  "entrance", "deliveryinstructions",
+]);
+const isAddressShaped = (obj: object) => Object.keys(obj).some((k) => ADDRESS_MARKERS.has(norm(k)));
 // `customer-latitude`, `delivery_longitude`, …
 const isCoordinateKey = (k: string) => k.endsWith("latitude") || k.endsWith("longitude");
 
@@ -38,6 +46,8 @@ const STRING_PATTERNS: Array<[RegExp, string]> = [
   // Taiwan street addresses (松仁路100號, 忠孝東路四段1巷2弄3號) and city + district
   [/[\u4e00-\u9fff]{1,10}(?:路|街|大道)(?:[一二三四五六七八九十\d]+段)?(?:[\d一二三四五六七八九十]+巷)?(?:[\d一二三四五六七八九十]+弄)?\s*\d+(?:-\d+)?(?:之\d+)?\s*號[^\s"',]*/g, "[REDACTED:address]"],
   [/[\u4e00-\u9fff]{1,3}[市縣][\u4e00-\u9fff]{1,3}[區鄉鎮市]/g, "[REDACTED:address]"],
+  // GPS-precision coordinates inside Taiwan in text ("25.12345,121.54321", URL paths)
+  [/(?<![\d.])(?:2[1-5]\.\d{4,}|1(?:19|2[0-2])\.\d{4,})(?![\d.])/g, "[REDACTED:coordinate]"],
   // Taiwan mobiles and landlines, with or without +886
   [/(?<![\d.])(?:\+?886[\s-]?|0)(?:9\d{2}[\s-]?\d{3}[\s-]?\d{3}|[2-8]\d?[\s-]?\d{3,4}[\s-]?\d{4})(?![\d.])/g, "[REDACTED:phone]"],
 ];
@@ -50,6 +60,7 @@ function redactValue(value: unknown, parentKey: string): unknown {
   if (typeof value === "string") return redactString(value);
   if (Array.isArray(value)) return value.map((v) => redactValue(v, parentKey));
   if (value && typeof value === "object") {
+    if (isAddressShaped(value)) return "[REDACTED:address]";
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       const key = norm(k);
