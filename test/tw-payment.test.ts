@@ -6,6 +6,7 @@ import {
   CheckoutStatusUnknownError,
   buildCalculateRequest,
   checkCalculatedPayment,
+  checkoutMismatches,
   parseCheckoutResponse,
   parsePurchaseIntent,
   purchaseIntentRequest,
@@ -78,28 +79,60 @@ test("a calculate answer with another or no payment method is refused, never use
   assert.throws(() => checkCalculatedPayment(cart.response, linePay), /No other payment method was used/);
 });
 
-test("checkout response: an order code is a placed order", () => {
+test("checkout response: an order code and nothing pending is a placed order", () => {
   const outcome = parseCheckoutResponse({ id: "abcd-1234", payment: { result: "success", action: null }, expedition: { expected_delivery_duration: 35 } });
-  assert.deepEqual(outcome, { orderCode: "abcd-1234", status: "success", estimatedDelivery: "35 min" });
+  assert.equal(outcome.orderCode, "abcd-1234");
+  assert.equal(outcome.status, "success");
+  assert.equal(outcome.estimatedDelivery, "35 min");
 });
 
-test("checkout response: a redirect or payment action is a clear 'status unknown', not a success", () => {
-  for (const resp of [
-    { id: "abcd-1234", redirect_url: "https://example.invalid/pay" },
-    { id: "abcd-1234", payment: { action: "redirect" } },
-    { id: "abcd-1234", payment: { action: { type: "REDIRECT", url: "https://example.invalid" } } },
-  ]) {
+test("checkout response: a bare order code is accepted but its status is 'unconfirmed', not 'placed'", () => {
+  const outcome = parseCheckoutResponse({ id: "o6" });
+  assert.equal(outcome.status, "unconfirmed");
+  assert.equal(outcome.reportedTotal, null);
+  assert.equal(outcome.reportedMethods, null);
+});
+
+// The reviewer's probes, plus a few more: anything pending, anywhere, is "status unknown".
+const PENDING_SHAPES: Array<[string, unknown]> = [
+  ["payment.redirect_url", { id: "o1", payment: { redirect_url: "https://example.invalid/pay" } }],
+  ["payment.client_action", { order_code: "o2", payment: { client_action: { type: "LINE_PAY" } } }],
+  ["payment.status pending", { order_code: "o3", payment: { status: "pending" } }],
+  ["data.redirect_url", { data: { order_code: "o4", redirect_url: "https://example.invalid/pay" } }],
+  ["top-level redirect_url", { id: "o5", redirect_url: "https://example.invalid/pay" }],
+  ["payment.action string", { id: "o7", payment: { action: "redirect" } }],
+  ["deeplink", { id: "o8", payment: { line_pay: { deeplink: "line://pay/x" } } }],
+  ["status waiting_for_payment", { id: "o9", status: "WAITING_FOR_PAYMENT" }],
+  ["result requires_action", { id: "o10", payment: { result: "requires_action" } }],
+  ["order status failed", { order: { code: "o11", status: "failed" } }],
+  ["nested in an array", { id: "o12", payment: { steps: [{ action_url: "https://example.invalid" }] } }],
+];
+for (const [label, resp] of PENDING_SHAPES) {
+  test(`checkout response: ${label} is 'status unknown', not a success`, () => {
     assert.throws(() => parseCheckoutResponse(resp), (err: Error) => {
       assert.ok(err instanceof CheckoutStatusUnknownError);
-      assert.match(err.message, /extra payment step/);
+      assert.match(err.message, /unfinished step or status/);
       assert.match(err.message, /Do not retry/);
       return true;
     });
+  });
+}
+
+test("checkout response: errors or no order code are 'status unknown'", () => {
+  for (const resp of [{ errors: [{ message: "x" }] }, { error: "x" }, { status: "ok" }, null, [], "text"]) {
+    assert.throws(() => parseCheckoutResponse(resp), CheckoutStatusUnknownError);
   }
 });
 
-test("checkout response: errors or no order code are 'status unknown'", () => {
-  for (const resp of [{ errors: [{ message: "x" }] }, { error: "x" }, { status: "ok" }, null]) {
-    assert.throws(() => parseCheckoutResponse(resp), CheckoutStatusUnknownError);
-  }
+test("checkout response: a reported total or method that differs from the confirmed order is flagged", () => {
+  const expected = { total: 366, method: "line_pay" };
+  const same = parseCheckoutResponse({ id: "o", total: 366, payment: { methods: [{ method: "line_pay" }] } });
+  assert.deepEqual(checkoutMismatches(same, expected), []);
+  const silent = parseCheckoutResponse({ id: "o" });
+  assert.deepEqual(checkoutMismatches(silent, expected), [], "nothing reported, nothing to compare");
+  const other = parseCheckoutResponse({ id: "o", payment: { total: 380, methods: [{ method: "payment_on_delivery" }] } });
+  const found = checkoutMismatches(other, expected);
+  assert.equal(found.length, 2);
+  assert.match(found[0], /total 380 instead of the confirmed 366/);
+  assert.match(found[1], /payment_on_delivery instead of the confirmed line_pay/);
 });

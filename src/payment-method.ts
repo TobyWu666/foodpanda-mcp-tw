@@ -29,11 +29,13 @@ export class UnsupportedPaymentMethodError extends Error {
   constructor(
     readonly requested: string,
     /** Supported methods that are actually available for this order, if known. */
-    readonly available: readonly PaymentMethodChoice[] = SUPPORTED_PAYMENT_METHODS
+    readonly available: readonly PaymentMethodChoice[] = SUPPORTED_PAYMENT_METHODS,
+    /** Why the requested method cannot be used, when known (e.g. "no bound LINE Pay account"). */
+    readonly reason?: string
   ) {
     const list = available.length > 0 ? available.join(", ") : "none";
     super(
-      `Payment method "${requested}" is not supported. ` +
+      `Payment method "${requested}" is not supported${reason ? ` (${reason})` : ""}. ` +
         `Supported and available: ${list}. ` +
         `No other payment method was used.`
     );

@@ -292,7 +292,7 @@ test("bound LINE Pay asking for a redirect is reported, not treated as paid, and
     await fillCart(call);
     const { confirmation_code } = await prepare(call);
     const res = await call("place_order", { confirmation_code });
-    assert.match(res.text, /extra payment step/);
+    assert.match(res.text, /unfinished step or status/);
     assert.equal(fake.checkouts().length, 1);
     assert.equal(fake.checkouts()[0].body.payment.methods[0].method, "line_pay");
   } finally {
@@ -341,4 +341,101 @@ test("with several saved addresses, prepare_order asks instead of guessing", asy
   } finally {
     await close();
   }
+});
+
+test("after a 'status unknown', the cart is emptied and a new order needs the user's check first", async () => {
+  const { fake, call, close } = await setup();
+  try {
+    fake.state.checkout = () => ({
+      status: 200,
+      text: JSON.stringify({ id: "fake-order-3", payment: { status: "pending" } }),
+    });
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    const res = await call("place_order", { confirmation_code });
+    assert.match(res.text, /order status is unknown/);
+    assert.equal((await call("get_cart")).text, "Cart is empty.");
+
+    // The agent tries to order again straight away: refused until the user has checked.
+    await fillCart(call);
+    const blocked = await call("prepare_order", { payment_method: "linepay" });
+    assert.equal(blocked.isError, true);
+    assert.match(blocked.text, /previous order's status is unknown.*check the foodpanda app/s);
+
+    const allowed = await call("prepare_order", { payment_method: "linepay", previous_order_checked_in_app: true });
+    assert.equal(allowed.isError, false, allowed.text);
+    assert.equal(fake.checkouts().length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("rebinding or unbinding LINE Pay after prepare_order voids the code", async () => {
+  for (const change of ["rebind", "unbind"] as const) {
+    const { fake, call, close } = await setup();
+    try {
+      await fillCart(call);
+      const { confirmation_code } = await prepare(call);
+      const linePay = fake.state.intent.data.paymentMethodDetails.paymentMethods.find((m: any) => m.name === "line_pay");
+      if (change === "rebind") linePay.paymentInstruments[0].publicId = "another-linepay-instrument";
+      else linePay.paymentInstruments = [];
+      const res = await call("place_order", { confirmation_code });
+      assert.equal(res.isError, true, change);
+      assert.match(res.text, /payment_method|can no longer be used/, change);
+      assert.equal(fake.checkouts().length, 0, change);
+    } finally {
+      await close();
+    }
+  }
+});
+
+test("prepare_order with unbound LINE Pay says it is not bound", async () => {
+  const { fake, call, close } = await setup();
+  try {
+    await fillCart(call);
+    const linePay = fake.state.intent.data.paymentMethodDetails.paymentMethods.find((m: any) => m.name === "line_pay");
+    linePay.paymentInstruments = [];
+    const res = await call("prepare_order", { payment_method: "linepay" });
+    assert.match(res.text, /LINE Pay not bound/);
+  } finally {
+    await close();
+  }
+});
+
+test("an order whose reported total or method differs is flagged prominently", async () => {
+  const { fake, call, close } = await setup();
+  try {
+    fake.state.checkout = () => ({
+      status: 200,
+      text: JSON.stringify({ id: "fake-order-4", total: 380, payment: { methods: [{ method: "line_pay" }] } }),
+    });
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    const res = await call("place_order", { confirmation_code });
+    const result = JSON.parse(res.text);
+    assert.equal(Object.keys(result)[0], "attention", "the warning comes first");
+    assert.match(result.attention, /MISMATCH: foodpanda reports total 380 instead of the confirmed 366/);
+    assert.equal(result.order_id, "fake-order-4");
+  } finally {
+    await close();
+  }
+});
+
+test("a bare order code is reported with status 'unconfirmed' and a note to check the app", async () => {
+  const { fake, call, close } = await setup();
+  try {
+    fake.state.checkout = () => ({ status: 200, text: JSON.stringify({ id: "fake-order-5" }) });
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    const result = JSON.parse((await call("place_order", { confirmation_code })).text);
+    assert.equal(result.status, "unconfirmed");
+    assert.match(result.status_note, /check the order in the foodpanda app/);
+  } finally {
+    await close();
+  }
+});
+
+test("a client without an injected http cannot reach the network from a test", async () => {
+  const fp = new FoodpandaClient(null, 25.033964, 121.564468);
+  await assert.rejects(fp.searchRestaurants("x"), /Network access in a test/);
 });

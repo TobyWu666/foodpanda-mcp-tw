@@ -40,6 +40,8 @@ export interface OrderSnapshot {
   service_fee: number;
   total: number;
   payment_method: PaymentMethodChoice;
+  /** The saved instrument charged (e.g. the bound LINE Pay account), so rebinding voids the code. */
+  payment_instrument_id?: string;
   address: OrderSnapshotAddress;
   delivery_instructions: string;
 }
@@ -116,6 +118,7 @@ function canonicalSnapshot(s: OrderSnapshot): OrderSnapshot {
     service_fee: s.service_fee,
     total: s.total,
     payment_method: s.payment_method,
+    payment_instrument_id: s.payment_instrument_id ?? "",
     address: {
       id: s.address.id,
       latitude: s.address.latitude,
@@ -148,7 +151,9 @@ function diffSnapshots(a: OrderSnapshot, b: OrderSnapshot): string[] {
   ) {
     changed.push("price");
   }
-  if (ca.payment_method !== cb.payment_method) changed.push("payment_method");
+  if (ca.payment_method !== cb.payment_method || ca.payment_instrument_id !== cb.payment_instrument_id) {
+    changed.push("payment_method");
+  }
   if (JSON.stringify(ca.address) !== JSON.stringify(cb.address)) changed.push("address");
   if (ca.delivery_instructions !== cb.delivery_instructions) {
     changed.push("delivery_instructions");

@@ -110,10 +110,14 @@ export interface Cart {
 }
 
 export interface OrderResult {
+  /** Present only when foodpanda's answer differs from what the user confirmed. */
+  attention?: string;
   order_id: string;
   status: string;
+  status_note?: string;
   estimated_delivery_time: string;
   total: number;
+  payment_method: string;
 }
 
 // --- Checkout-related types ---

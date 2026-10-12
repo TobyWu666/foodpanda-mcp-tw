@@ -42,8 +42,10 @@ import {
   checkQuantity,
   type PaymentOption,
   type PurchaseIntent,
+  CHECK_THE_APP,
   CheckoutStatusUnknownError,
   buildCheckoutRequest,
+  checkoutMismatches,
   checkCalculatedPayment,
   parseCheckoutResponse,
   parsePurchaseIntent,
@@ -89,7 +91,6 @@ export interface FoodpandaClientOptions {
 /** What prepareOrder locked; place_order rebuilds the order from it. */
 interface PreparedOrder {
   option: PaymentOption;
-  intentId: string;
   addressId: number;
   deliveryInstructions: string;
 }
@@ -161,6 +162,8 @@ export class FoodpandaClient {
   // Two-step order state
   private readonly guard: OrderGuard;
   private prepared: PreparedOrder | null = null;
+  /** Set when a checkout was sent but its outcome is unknown. */
+  private unresolvedOrder: { at: string; detail: string } | null = null;
   private readonly http: HttpFunction | undefined;
 
   constructor(
@@ -265,6 +268,10 @@ export class FoodpandaClient {
     init: { method?: string; headers?: Record<string, string>; body?: string } = {}
   ): Promise<{ status: number; ok: boolean; text: string }> {
     if (this.http) return this.http(url, init);
+    if (process.env.NODE_TEST_CONTEXT) {
+      // Under node --test every client must get a fake http; never reach foodpanda from a test.
+      throw new Error(`Network access in a test (no http injected): ${url}`);
+    }
     await this.throttle();
     const cfg = getRegionConfig();
     if (!cfg.browserTransport) {
@@ -789,7 +796,7 @@ export class FoodpandaClient {
   private orderSnapshot(
     customer: CustomerProfile,
     address: DeliveryAddress,
-    paymentMethod: PaymentMethodChoice,
+    payment: PaymentOption,
     deliveryInstructions: string
   ): OrderSnapshot {
     return {
@@ -807,7 +814,8 @@ export class FoodpandaClient {
       delivery_fee: this.cartDeliveryFee,
       service_fee: this.cartServiceFee,
       total: this.cartTotal,
-      payment_method: paymentMethod,
+      payment_method: payment.choice,
+      payment_instrument_id: payment.publicId,
       address: {
         id: Number(address.id),
         latitude: address.latitude,
@@ -826,10 +834,23 @@ export class FoodpandaClient {
     payment_method: string;
     address_id?: number;
     delivery_instructions?: string;
+    previous_order_checked_in_app?: boolean;
   }): Promise<PreparedOrderSummary> {
     // Any earlier code is void from here on, whatever happens below.
     this.guard.invalidate();
     this.prepared = null;
+
+    if (this.unresolvedOrder) {
+      if (!input.previous_order_checked_in_app) {
+        throw new Error(
+          `The previous order's status is unknown (${this.unresolvedOrder.detail}, at ${this.unresolvedOrder.at}). ` +
+            "It may already have been placed. Ask the user to check the foodpanda app first. Only after they " +
+            "confirm it did not go through (or that they want another order anyway), call prepare_order again " +
+            "with previous_order_checked_in_app: true."
+        );
+      }
+      this.unresolvedOrder = null;
+    }
 
     const choice = parsePaymentMethodChoice(input.payment_method);
     this.requireCart();
@@ -848,7 +869,12 @@ export class FoodpandaClient {
     const intent = await this.getPurchaseIntent();
     const option = intent.options.find((o) => o.choice === choice);
     if (!option) {
-      throw new UnsupportedPaymentMethodError(choice, intent.options.map((o) => o.choice));
+      const why = intent.unavailable.find((u) => u.choice === choice)?.reason;
+      throw new UnsupportedPaymentMethodError(
+        choice,
+        intent.options.map((o) => o.choice),
+        why === "no bound LINE Pay account" ? "LINE Pay not bound: no LINE Pay account is bound to foodpanda" : why
+      );
     }
     const amount = this.cartTotal;
     await this.calculateCart({ address, payment: { option, amount } });
@@ -864,8 +890,8 @@ export class FoodpandaClient {
       );
     }
 
-    const snapshot = this.orderSnapshot(customer, address, choice, instructions);
-    this.prepared = { option, intentId: intent.intentId, addressId: Number(address.id), deliveryInstructions: instructions };
+    const snapshot = this.orderSnapshot(customer, address, option, instructions);
+    this.prepared = { option, addressId: Number(address.id), deliveryInstructions: instructions };
     const issued = this.guard.issue(snapshot);
 
     return {
@@ -919,7 +945,18 @@ export class FoodpandaClient {
         );
       }
       await this.calculateCart({ address, payment: { option: prepared.option, amount: this.cartTotal } });
-      const current = this.orderSnapshot(customer, address, prepared.option.choice, prepared.deliveryInstructions);
+      // Ask again which instrument would be charged: rebinding or unbinding LINE Pay in the
+      // app since prepare_order changes it (or removes it), and the snapshot then differs.
+      const intent = await this.getPurchaseIntent();
+      const option = intent.options.find((o) => o.choice === prepared.option.choice);
+      if (!option) {
+        throw new OrderConfirmationError(
+          "changed",
+          `${prepared.option.label} can no longer be used for this order. Call prepare_order again.`,
+          ["payment_method"]
+        );
+      }
+      const current = this.orderSnapshot(customer, address, option, prepared.deliveryInstructions);
 
       // Spend the code. From here on, any failure needs a new prepare_order.
       this.guard.consume(confirmationCode, current);
@@ -935,8 +972,9 @@ export class FoodpandaClient {
         address,
         deliveryInstructions: prepared.deliveryInstructions,
         total: current.total,
-        intentId: prepared.intentId,
-        option: prepared.option,
+        // The intent just fetched for this exact amount; its instrument matched the confirmed one.
+        intentId: intent.intentId,
+        option,
         webHost: cfg.webHost,
         currency: cfg.currency,
       });
@@ -954,24 +992,54 @@ export class FoodpandaClient {
           },
         });
       } catch (err) {
-        throw new CheckoutStatusUnknownError(`sending the order failed (${redactForLog((err as Error).message)}).`);
+        throw this.unresolved(
+          new CheckoutStatusUnknownError(`sending the order failed (${redactForLog((err as Error).message)}).`)
+        );
       }
 
       console.error("[placeOrder] checkout response:", redactForLog(resp));
-      const outcome = parseCheckoutResponse(resp);
+      let outcome;
+      try {
+        outcome = parseCheckoutResponse(resp);
+      } catch (err) {
+        throw this.unresolved(err as Error);
+      }
       const total = current.total;
       this.clearCart();
+      const mismatches = checkoutMismatches(outcome, { total, method: option.method });
       return {
+        ...(mismatches.length > 0
+          ? {
+              attention:
+                `MISMATCH: foodpanda reports ${mismatches.join("; ")}. Tell the user right away and ask them ` +
+                "to check the order and the charge in the foodpanda app.",
+            }
+          : {}),
         order_id: outcome.orderCode,
         status: outcome.status,
+        ...(outcome.status === "unconfirmed"
+          ? { status_note: "foodpanda did not report a status. Ask the user to check the order in the foodpanda app." }
+          : {}),
         estimated_delivery_time: outcome.estimatedDelivery,
         total,
+        payment_method: option.choice,
       };
     } finally {
       // Whatever happened, this code and this preparation are finished.
       this.guard.invalidate();
       this.prepared = null;
     }
+  }
+
+  /**
+   * After a checkout whose outcome is unknown: empty the cart and refuse a new
+   * prepare_order until the user has checked the app, so the agent cannot
+   * simply order again and risk a duplicate.
+   */
+  private unresolved(err: Error): Error {
+    this.clearCart();
+    this.unresolvedOrder = { at: new Date().toISOString(), detail: err.message.replace(CHECK_THE_APP, "").trim().slice(0, 300) };
+    return err;
   }
 
   private dpsSessionId(): string {

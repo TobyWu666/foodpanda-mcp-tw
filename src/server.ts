@@ -400,11 +400,22 @@ export function createServer(client: FoodpandaClient): McpServer {
           .max(300)
           .optional()
           .describe("Note for the rider, e.g. 'Leave at the door'"),
+        previous_order_checked_in_app: z
+          .boolean()
+          .optional()
+          .describe(
+            "Only after a place_order whose status was unknown: set true once the user has checked the foodpanda app and still wants to order. Never set it on your own."
+          ),
       }),
     },
-    async ({ payment_method, address_id, delivery_instructions }) => {
+    async ({ payment_method, address_id, delivery_instructions, previous_order_checked_in_app }) => {
       try {
-        const summary = await client.prepareOrder({ payment_method, address_id, delivery_instructions });
+        const summary = await client.prepareOrder({
+          payment_method,
+          address_id,
+          delivery_instructions,
+          previous_order_checked_in_app,
+        });
         return text({
           ...summary,
           next_step:
@@ -430,7 +441,7 @@ export function createServer(client: FoodpandaClient): McpServer {
       try {
         return text(await client.placeOrder(confirmation_code));
       } catch (error) {
-        return failure("Order not confirmed", error);
+        return failure("place_order result", error);
       }
     }
   );

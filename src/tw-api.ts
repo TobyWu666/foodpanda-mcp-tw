@@ -870,17 +870,57 @@ export class CheckoutStatusUnknownError extends Error {
 
 export interface CheckoutOutcome {
   orderCode: string;
+  /** The status foodpanda reported, or "unconfirmed" when it reported none. */
   status: string;
   estimatedDelivery: string;
+  /** The total foodpanda reported for the order, if the response carries one. */
+  reportedTotal: number | null;
+  /** The payment methods foodpanda reported for the order, if the response carries them. */
+  reportedMethods: string[] | null;
+}
+
+/** Keys that mean "the customer still has to go somewhere or do something". */
+const PENDING_STEP_KEY = /redirect|action|url|deeplink|deep_link|app_link|applink|link|challenge|3ds|qr/i;
+/** Status-like values that mean the order or payment is not finished. */
+const NOT_DONE_STATUS = /pend|wait|requir|fail|declin|reject|cancel|error|unpaid|process|initiat|authori|incomplete|unknown|timeout|expire/i;
+const STATUS_KEY = /^(status|result|state|payment_status|order_status)$/i;
+
+function isEmpty(value: unknown): boolean {
+  if (value === null || value === undefined || value === "" || value === false) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value as object).length === 0;
+  return false;
+}
+
+/** Every reason, anywhere in the body, that the order may not be finished. */
+function pendingSignals(body: unknown, path = ""): string[] {
+  if (!body || typeof body !== "object") return [];
+  const found: string[] = [];
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    const here = path ? `${path}.${key}` : key;
+    if (PENDING_STEP_KEY.test(key) && !isEmpty(value)) found.push(here);
+    if (STATUS_KEY.test(key) && typeof value === "string" && NOT_DONE_STATUS.test(value)) {
+      found.push(`${here}=${value}`);
+    }
+    if (value && typeof value === "object") found.push(...pendingSignals(value, here));
+  }
+  return found;
 }
 
 /**
- * Read a checkout response. Bound LINE Pay is meant to be charged by foodpanda
- * with no redirect; a redirect_url or a pending payment action means it was not,
- * so we stop and say so instead of guessing.
+ * Read a checkout response, accepting only a clearly finished order.
+ *
+ * UNVERIFIED FOR TW: no tw checkout response has ever been captured, so there is
+ * no known success shape to match. Until one is recorded, the rule is an
+ * allow-list: an order code, and nothing anywhere in the body that looks like a
+ * pending step (a non-empty redirect / action / url / deeplink field) or an
+ * unfinished status (pending, waiting, required, failed, ...). Anything else is
+ * "status unknown". Bound LINE Pay is meant to be charged with no extra step, so
+ * a LINE Pay order still waiting for payment lands here, never as a success.
+ * Replace this with the real tw shape once a checkout is captured.
  */
 export function parseCheckoutResponse(resp: any): CheckoutOutcome {
-  if (!resp || typeof resp !== "object") {
+  if (!resp || typeof resp !== "object" || Array.isArray(resp)) {
     throw new CheckoutStatusUnknownError("checkout returned no readable answer.");
   }
   const errors: any[] = Array.isArray(resp.errors) ? resp.errors : [];
@@ -890,11 +930,11 @@ export function parseCheckoutResponse(resp: any): CheckoutOutcome {
   }
   if (resp.error) throw new CheckoutStatusUnknownError(`foodpanda answered with an error (${resp.error}).`);
 
-  const action = resp.payment?.action;
-  if (resp.redirect_url || (action !== undefined && action !== null && action !== "")) {
+  const signals = pendingSignals(resp);
+  if (signals.length > 0) {
     throw new CheckoutStatusUnknownError(
-      "foodpanda asked for an extra payment step (a redirect or payment action), so the payment " +
-        "was not completed directly. The order may be waiting for payment."
+      `foodpanda's answer shows an unfinished step or status (${signals.slice(0, 5).join(", ")}), so the ` +
+        "payment may not be complete. The order may be waiting for payment."
     );
   }
 
@@ -904,10 +944,36 @@ export function parseCheckoutResponse(resp: any): CheckoutOutcome {
   if (typeof orderCode !== "string" || !orderCode) {
     throw new CheckoutStatusUnknownError("checkout did not return an order code.");
   }
+
+  const statusValue = resp.payment?.result ?? resp.order?.status ?? resp.status ?? resp.data?.status;
   const minutes = Number(resp.expedition?.expected_delivery_duration ?? 0);
+  const totalValue = resp.total ?? resp.payment?.total ?? resp.payment?.payable_total ?? resp.order?.total ?? resp.data?.total;
+  const methodList: any[] | null = Array.isArray(resp.payment?.methods) ? resp.payment.methods : null;
+  const singleMethod = resp.payment?.method ?? resp.order?.payment_method ?? resp.data?.payment_method;
   return {
     orderCode,
-    status: String(resp.payment?.result ?? resp.order?.status ?? resp.status ?? resp.data?.status ?? "placed"),
+    status: typeof statusValue === "string" && statusValue ? statusValue : "unconfirmed",
     estimatedDelivery: resp.order?.estimated_delivery_time ?? (minutes > 0 ? `${minutes} min` : ""),
+    reportedTotal: typeof totalValue === "number" ? totalValue : typeof totalValue === "string" && totalValue.trim() !== "" && !Number.isNaN(Number(totalValue)) ? Number(totalValue) : null,
+    reportedMethods: methodList
+      ? methodList.map((m) => String(m?.method ?? m?.name ?? "?"))
+      : typeof singleMethod === "string"
+        ? [singleMethod]
+        : null,
   };
+}
+
+/** Differences between what foodpanda says it ordered and what the user confirmed. */
+export function checkoutMismatches(
+  outcome: CheckoutOutcome,
+  expected: { total: number; method: string }
+): string[] {
+  const out: string[] = [];
+  if (outcome.reportedTotal !== null && outcome.reportedTotal !== expected.total) {
+    out.push(`total ${outcome.reportedTotal} instead of the confirmed ${expected.total}`);
+  }
+  if (outcome.reportedMethods !== null && (outcome.reportedMethods.length !== 1 || outcome.reportedMethods[0] !== expected.method)) {
+    out.push(`payment method ${outcome.reportedMethods.join(", ") || "none"} instead of the confirmed ${expected.method}`);
+  }
+  return out;
 }
