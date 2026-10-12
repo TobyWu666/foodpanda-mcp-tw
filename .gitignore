@@ -3,3 +3,39 @@ build/
 .env
 .DS_Store
 request_capture/
+
+# --- Privacy: never commit credentials, personal data or raw captures ---
+# Raw network captures (HAR exports, mitmproxy dumps, saved responses).
+# Mask them with scripts/mask-capture.mjs and commit only the masked copy under test/fixtures/.
+captures/
+capture/
+*.har
+*.har.json
+*.mitm
+*.flow
+*.pcap
+*.pcapng
+*.unmasked.json
+# Tokens, cookies and session state
+token.json
+*token*.json
+cookies.json
+*cookies*.json
+*.cookies
+storage-state*.json
+.foodpanda-mcp/
+browser-data/
+user-data-dir/
+gql-hashes.json
+# Environment files (keep a placeholder-only .env.example)
+.env.*
+!.env.example
+*.env
+# Local MCP client configs often hold env vars with tokens/coordinates
+.mcp.json
+claude_desktop_config.json
+# Logs may contain checkout responses
+*.log
+logs/
+# Masked fixtures are the one exception (they pass `mask-capture.mjs --check`)
+!test/fixtures/*.masked.json
