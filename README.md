@@ -55,18 +55,18 @@
 
 ## 需求
 
-- Node.js 20 以上
+- Node.js（本 repo 沒有指定最低版本）
 - Playwright 的 Chromium（`npx playwright install chromium`）。API 請求和登入都在真的瀏覽器裡進行。
 - 在沒有螢幕的伺服器上需要 **Xvfb**（`apt-get install xvfb`）。瀏覽器必須以有畫面（headed）模式執行才過得了 PerimeterX，
   沒有 `DISPLAY` 時程式會自己啟動 Xvfb。在一般桌機（Mac／Windows／有桌面的 Linux）上不需要。
-- 一個 foodpanda 台灣帳號，而且**要用的外送地址已經先存在帳號裡**（結帳時會選離你設定座標最近的已存地址）。
+- 一個 foodpanda 台灣帳號，而且**要用的外送地址已經先存在帳號裡**。（地址怎麼選定會在階段 4 實作，**規劃中**：在 `prepare_order` 明確選定並綁進確認碼。）
 
 ## 安裝與建置
 
 ```bash
 git clone https://github.com/TobyWu666/foodpanda-mcp-tw.git
 cd foodpanda-mcp-tw
-npm install --ignore-scripts     # --ignore-scripts 跳過套件內建的 Chrome 下載
+npm install
 npm run build                    # 產生 build/
 npx playwright install chromium  # 完整版 Chromium（new headless 模式）
 ```
@@ -101,23 +101,7 @@ claude mcp add foodpanda --scope user \
   -- node /絕對路徑/foodpanda-mcp-tw/build/index.js
 ```
 
-或寫成 JSON（例如專案的 `.mcp.json`）：
-
-```json
-{
-  "mcpServers": {
-    "foodpanda": {
-      "command": "node",
-      "args": ["/絕對路徑/foodpanda-mcp-tw/build/index.js"],
-      "env": {
-        "FOODPANDA_LATITUDE": "25.0330",
-        "FOODPANDA_LONGITUDE": "121.5654",
-        "FOODPANDA_HEADLESS": "0"
-      }
-    }
-  }
-}
-```
+建議只用使用者層級的設定（上面的 `--scope user`）。**不要**把這些設定寫進專案資料夾的 `.mcp.json`，裡面的座標（和 token，如果有設）可能會被 commit 進 git。
 
 tools 會以 `mcp__foodpanda__<tool 名稱>` 出現。
 **不要**把 `mcp__foodpanda__place_order` 加進 `settings.json` 的 `permissions.allow`，
@@ -242,7 +226,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 過期的 token（JWT `exp`）會被忽略並在 stderr 說明原因；請重新呼叫 `refresh_token`。
 - 瀏覽器設定檔 `browser-data/` 會保留登入狀態與 PerimeterX 的通行 cookie。
 
-沒有登入也可以**搜尋和看菜單**（這些是公開資料）；購物車與下單需要登入。
+沒有登入也可以**搜尋和看菜單**（這些是公開資料）；購物車與下單需要登入。（這是香港版的經驗，台灣站尚未驗證。）
 
 > 不建議用 `FOODPANDA_SESSION_TOKEN`：token 會因此寫在 client 設定檔裡，容易被備份、分享或誤 commit。
 
@@ -272,7 +256,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 指定不支援或帳號上不可用的方式時，會回傳明確錯誤（錯誤代碼 `UNSUPPORTED_PAYMENT_METHOD`，
   訊息會列出可用的方式並註明「沒有改用其他付款方式」），**絕不會**默默換成別的方式。
 - **（規劃中）** 新的 tool 讓 AI 列出你帳號可用的付款方式（暫定名稱 `list_payment_methods`），
-  並在 `prepare_order` 時選擇 `linepay` 或 `cash`。目前程式碼裡的 `place_order` 仍是原本只收現金的舊版，階段 4 會替換。
+  並在 `prepare_order` 時選擇 `linepay` 或 `cash`。舊版一步下單（`preview_order`／`place_order`）**目前已停用**，要等階段 4 的兩步下單完成才能下單。
 
 > **LINE Pay 尚未驗證：** 目前還不知道已綁定的 LINE Pay 在結帳時會不會要求跳轉到 LINE 確認。
 > 這要等第一次真實下單才能確認（只會由帳號擁有者手動進行）。
@@ -328,7 +312,7 @@ tool 說明裡會明確寫：AI 必須先把 `prepare_order` 的內容完整給�
 | `add_to_cart` | 加入購物車，`topping_ids` 填選項代碼；必選群組沒選、選太多、選了不存在或售完的選項都會擋下 |
 | `get_cart` / `remove_from_cart` | 查看／移除購物車品項，價格會向 API 重新驗算 |
 | `refresh_token` | 開瀏覽器讓你登入，擷取並儲存 token |
-| `preview_order` / `place_order` | 舊版下單流程（只支援現金），**階段 4 會被下面的新 tools 取代** |
+| `preview_order` / `place_order`（舊版） | **已停用**。階段 4 的兩步下單完成前無法下單 |
 | `list_payment_methods` | **（規劃中）** 列出帳號可用的付款方式（只會是 `linepay`、`cash`） |
 | `prepare_order` | **（規劃中）** 鎖定訂單內容並產生確認碼，取代 `preview_order` |
 | `place_order` | **（規劃中，新版）** 只收確認碼 |
@@ -358,6 +342,8 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 
 ## PerimeterX 防機器人機制
 
+> 本節是香港版實測的經驗，台灣站尚未驗證。
+
 `*.fd-api.com` 前面有 PerimeterX。能不能通過，看的不是你在哪個國家，而是瀏覽器像不像自動化程式：
 
 - 單純的 `fetch()`、curl、**headless** 瀏覽器會被擋（`403` 加 `px-captcha`，或「Access to this page has been denied」頁面）。
@@ -381,8 +367,8 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 4. **已綁定 LINE Pay 是否會在結帳時跳轉，目前未知。** 需要真實下單才能確認。若會跳轉，
    server 會回報狀態不明、不會重試，請到 foodpanda app 確認。
 5. **付款只支援已綁定 LINE Pay 與現金**，其他方式會明確報錯。LINE Pay 與兩步下單仍在開發中（階段 4）。
-6. **外送地址。** 結帳使用帳號裡離設定座標最近的已存地址，所以地址必須先存在帳號裡。
-   目前購物車驗價使用設定的座標，還沒帶入實際地址（階段 4 處理）。
+6. **外送地址。** 地址必須先存在帳號裡。下單時如何選定地址是階段 4 **規劃中**的功能（在 `prepare_order` 明確選定並綁進確認碼）。
+   目前購物車驗價使用設定的座標，還沒帶入實際地址。
 7. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
 8. **只在台灣驗證。** `hk`、`ph` preset 可以載入，但瀏覽與購物車照台灣網站的格式寫，不保證可用。
 
@@ -404,7 +390,7 @@ scripts/mask-capture.mjs    抓包資料個資遮蔽（產生 test fixture 用�
 ```
 
 ```bash
-npm install --ignore-scripts
+npm install
 npm run build
 npm test                                   # TypeScript 單元測試
 npx tsc && node --test test/privacy.test.mjs   # 隱私遮蔽測試
