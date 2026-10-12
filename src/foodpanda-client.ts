@@ -1483,7 +1483,7 @@ export class FoodpandaClient {
     if (!orderCode) {
       console.error("[placeOrder] no order code found in response:", redactForLog(result));
       throw new Error(
-        "Order may not have been placed — no order code in response. Check your foodpanda app/website to confirm. Raw response logged to server stderr."
+        "Order may not have been placed — no order code in response. Check your foodpanda app/website to confirm. A redacted copy of the response was logged to server stderr."
       );
     }
 

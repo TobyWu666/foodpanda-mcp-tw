@@ -2,7 +2,7 @@
 // All personal data below is made up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { maskCapture } from "../scripts/mask-capture.mjs";
+import { maskCapture, checkFixture, detectLeaks } from "../scripts/mask-capture.mjs";
 import { redactForLog } from "../build/redact.js";
 
 const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoidHcxMjM0NTYifQ.c2lnbmF0dXJlc2lnbmF0dXJl";
@@ -108,4 +108,100 @@ test("redactForLog handles raw error text", () => {
   assert.ok(!plain.includes("2345-6789"));
   assert.ok(!plain.includes("a@b.co"));
   assert.ok(!plain.includes(JWT));
+});
+
+// --- Gaps found in review ------------------------------------------------------------------
+
+const fullAddress = {
+  delivery_address: {
+    id: 987654,
+    formatted_customer_address: "台北市信義區松仁路100號",
+    district: "信義區",
+    city: "台北市",
+    title: "王小明的家",
+    label: "Home",
+    intercom: "B2",
+    structure: "apartment",
+    latitude: 25.03518,
+    longitude: 121.56781,
+  },
+  addresses: [{ address_line4: "忠孝東路四段1巷2弄3號", is_selected: true }],
+};
+
+test("1. address objects are masked whole, whatever the field names", () => {
+  const { masked } = maskCapture(fullAddress);
+  const out = JSON.stringify(masked);
+  for (const leak of ["松仁路", "信義區", "台北市", "王小明的家", "B2", "忠孝東路", "25.03518", "121.56781"]) {
+    assert.ok(!out.includes(leak), `still contains ${leak}`);
+  }
+  assert.equal(masked.delivery_address.id, 987654);
+  assert.equal(masked.addresses[0].is_selected, true);
+});
+
+test("1. redactForLog drops address objects whole", () => {
+  const out = redactForLog({ order: { id: "x1" }, ...fullAddress });
+  for (const leak of ["松仁路", "信義區", "王小明的家", "B2", "忠孝東路", "25.03518"]) {
+    assert.ok(!out.includes(leak), `still contains ${leak}`);
+  }
+  assert.ok(out.includes("x1"));
+  assert.ok(!redactForLog("delivery failed for 台北市信義區松仁路100號").includes("松仁路"));
+});
+
+test("2. coordinates in headers like customer-latitude are masked", () => {
+  const { masked } = maskCapture({
+    log: { entries: [{ request: { headers: [
+      { name: "customer-latitude", value: "25.03518" },
+      { name: "customer-longitude", value: "121.56781" },
+    ] } }] },
+  });
+  const out = JSON.stringify(masked);
+  assert.ok(!out.includes("25.03518"));
+  assert.ok(!out.includes("121.56781"));
+  assert.ok(!redactForLog({ "customer-latitude": "25.03518" }).includes("25.03518"));
+});
+
+test("3. tokens in the URL path and #fragment are masked", () => {
+  const { masked } = maskCapture({
+    a: `https://www.foodpanda.com.tw/reset/${JWT}?x=1`,
+    b: "https://www.foodpanda.com.tw/login/callback#access_token=opaque123&state=ok",
+  });
+  assert.ok(!masked.a.includes(JWT));
+  assert.ok(!masked.b.includes("opaque123"));
+  assert.match(masked.b, /state=ok/);
+});
+
+test("4. url-encoded form bodies are masked field by field", () => {
+  const { masked } = maskCapture({
+    postData: { mimeType: "application/x-www-form-urlencoded", text: "email=ming%40example.com&password=hunter2&remember=1" },
+  });
+  const text = masked.postData.text;
+  assert.ok(!text.includes("hunter2"));
+  assert.ok(!text.includes("ming"));
+  assert.match(text, /remember=1/);
+});
+
+test("--check catches each gap even without the masking rules", () => {
+  // detectLeaks looks at values only, so it catches what a field-name list would miss.
+  const kinds = (data) => detectLeaks(data).map((l) => l.kind);
+  assert.ok(kinds({ whatever: "台北市信義區松仁路100號" }).includes("address"));
+  assert.ok(kinds({ x: [{ name: "customer-latitude", value: "25.03518" }] }).includes("coordinate"));
+  assert.ok(kinds({ u: `https://x.test/reset/${JWT}` }).includes("token"));
+  assert.ok(kinds({ u: "https://x.test/cb#access_token=opaque123" }).includes("secret field"));
+  assert.ok(kinds({ body: "email=ming%40example.com&password=hunter2" }).includes("secret field"));
+  assert.ok(kinds({ body: "email=ming%40example.com&password=hunter2" }).includes("email"));
+});
+
+test("--check fails on a complete unmasked fake order response", () => {
+  const order = { ...checkoutBody, ...fullAddress };
+  assert.ok(checkFixture(order).length > 0);
+  // Simulate a fixture someone masked by hand and missed the home label in.
+  const handMasked = { delivery_address: { title: "王小明的家", label: "[REDACTED]" } };
+  assert.equal(detectLeaks(handMasked).length, 0, "no generic pattern for a free-text label");
+  assert.ok(checkFixture(handMasked, order).length > 0, "--against still finds it");
+});
+
+test("--check passes on the masker's own output, including against the raw capture", () => {
+  const raw = { ...har, extra: { ...checkoutBody, ...fullAddress } };
+  const { masked } = maskCapture(raw);
+  assert.deepEqual(checkFixture(masked, raw), []);
 });
