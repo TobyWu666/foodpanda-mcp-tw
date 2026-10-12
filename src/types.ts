@@ -45,6 +45,11 @@ export interface MenuItem {
     code: string;
     price: number;
   };
+  /** Every variation (size) of the product; `variation` is the first one. */
+  variations?: Array<{ id: number; code: string; price: number }>;
+  /** The product has choice groups (options, add-ons); get_item_details lists them. */
+  is_customizable?: boolean;
+  /** Filled in by get_item_details; empty in get_menu. */
   topping_groups: ToppingGroup[];
 }
 
@@ -61,6 +66,9 @@ export interface ToppingOption {
   product_id: number;
   name: string;
   price: number;
+  is_sold_out?: boolean;
+  /** The option opens its own nested choices, which this server cannot build yet. */
+  has_nested_choices?: boolean;
 }
 
 export interface MenuCategory {
@@ -79,6 +87,8 @@ export interface CartItem {
   total_price: number;
   toppings: CartItemTopping[];
   special_instructions: string;
+  /** false when foodpanda reports the item unavailable at validation. */
+  is_available?: boolean;
 }
 
 export interface CartItemTopping {
@@ -224,8 +234,8 @@ export interface CartProductPayload {
   special_instructions: string;
   sold_out_option: string;
   toppings: CartToppingPayload[];
-  products: null;
-  tags: null;
+  products: never[];
+  tags: never[];
   menu_category_code: null;
   menu_category_id: null;
   menu_id: null;
@@ -233,16 +243,16 @@ export interface CartProductPayload {
   group_order_user_id: number;
 }
 
+/**
+ * One selected choice, as the tw web app sends it to cart/calculate: a flat list of
+ * choices (no group nesting), each with its own price.
+ */
 export interface CartToppingPayload {
   id: number;
   name: string;
-  quantity: number;
-  options: CartToppingOptionPayload[];
-}
-
-export interface CartToppingOptionPayload {
-  id: number;
-  name: string;
+  price: number;
+  vat_percentage: null;
+  original_price: number;
   quantity: number;
 }
 
@@ -254,21 +264,32 @@ export interface CartVendorPayload {
   vertical: string;
 }
 
+/** cart/calculate body, field for field as the tw web app sends it (no address or payment yet). */
 export interface CartCalculateRequest {
   products: CartProductPayload[];
   vendor: CartVendorPayload;
   expedition: {
-    type: string;
+    expedition_options: null;
+    address_delivery_instructions: null;
+    rider_tip: null;
     delivery_option: string;
+    instructions: string;
+    delivery_instructions_tags: null;
+    type: string;
     latitude: number;
     longitude: number;
+    corporate_location_id: number;
   };
   voucher: string;
   voucher_context: null;
   auto_apply_voucher: boolean;
-  joker: { single_discount: boolean };
+  supported_features: Record<string, boolean>;
   joker_offer_id: string;
-  payment: { version: number };
+  payment: {
+    loyalty: { balance: null; points: number; selected_promotion_id: string };
+    methods: never[];
+    allowance_amount: number;
+  };
   group_order: null;
   source: string;
   order_time: string;

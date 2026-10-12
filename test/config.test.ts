@@ -13,10 +13,21 @@ test("tw is the default region, with the values seen in the tw capture", () => {
   assert.equal(cfg.languageId, 6);
 });
 
-test("tw leaves values the capture did not show unset instead of guessing", () => {
+test("tw carries the persisted-query hashes seen in the tw capture", () => {
   const cfg = loadRegionConfig({ FOODPANDA_COUNTRY: "tw" });
-  assert.equal(cfg.searchHash, "");
-  assert.equal(cfg.vendorListHash, "");
+  assert.equal(cfg.searchHash, "21ed33404faa7c57b9d8110d16c7daf010b29c1a0103c2f2c9d318c83f751177");
+  assert.equal(cfg.vendorListHash, "436d223f6c2c0d2ca1fbeec085e811183017e654394f75be55740ce2f9fff278");
+  assert.equal(cfg.restaurantDetailsHash, "2f099c32bbbb7df71dfe835ac6023583b968d3d86be315de4cdc7fd659de1b28");
+  assert.equal(cfg.productHash, "22f7602de58c2f275e637f368379c9cddca7c80a3e921d1e06e492006cc29610");
+});
+
+test("hash env overrides win, and hk has no menu hashes", () => {
+  const cfg = loadRegionConfig({ FOODPANDA_GQL_PRODUCT_HASH: "p", FOODPANDA_GQL_RESTAURANT_DETAILS_HASH: "r" });
+  assert.equal(cfg.productHash, "p");
+  assert.equal(cfg.restaurantDetailsHash, "r");
+  const hk = loadRegionConfig({ FOODPANDA_COUNTRY: "hk" });
+  assert.equal(hk.productHash, "");
+  assert.equal(hk.restaurantDetailsHash, "");
 });
 
 test("env overrides win over the tw preset", () => {

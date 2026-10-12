@@ -1,0 +1,730 @@
+{
+ "request": {
+  "operationName": "GetRestaurantDetailsPage",
+  "variables": {
+   "input": {
+    "code": "b6wb",
+    "expeditionType": "DELIVERY"
+   },
+   "restaurantMenuFilter": {
+    "expeditionType": "DELIVERY"
+   },
+   "recommendationInput": {
+    "expeditionType": "DELIVERY",
+    "isMealForOne": false
+   },
+   "discountedPriceInput": {
+    "expeditionType": "DELIVERY"
+   }
+  },
+  "extensions": {
+   "clientLibrary": {
+    "name": "@apollo/client",
+    "version": "4.0.12"
+   },
+   "persistedQuery": {
+    "version": 1,
+    "sha256Hash": "2f099c32bbbb7df71dfe835ac6023583b968d3d86be315de4cdc7fd659de1b28"
+   }
+  }
+ },
+ "response": {
+  "data": {
+   "restaurantDetailsPage": {
+    "vendorData": {
+     "__typename": "VendorData",
+     "code": "b6wb",
+     "name": "測試餐廳 5",
+     "availability": {
+      "distanceInMeters": 1000,
+      "isAffectedByShrinkage": false,
+      "nextAvailableAt": null,
+      "status": "OPEN",
+      "__typename": "VendorAvailability"
+     },
+     "vendorRating": {
+      "count": 21201,
+      "value": 4.8,
+      "__typename": "VendorRating"
+     },
+     "dynamicPricing": {
+      "deliveryFee": {
+       "total": 69,
+       "__typename": "DynamicPricingDeliveryFee",
+       "basketValueFee": null,
+       "original": 69,
+       "saverFee": null
+      },
+      "minimumOrderValue": {
+       "total": 79,
+       "__typename": "DynamicPricingMinimumOrderValue"
+      },
+      "__typename": "DynamicPricing",
+      "serviceFee": {
+       "total": 5,
+       "setUpValue": 7,
+       "serviceFeeType": "SERVICE_FEE_TYPE_PERCENTAGE",
+       "minimumValue": 5,
+       "maximumValue": 19,
+       "__typename": "DynamicPricingServiceFee"
+      },
+      "highValueActionLabel": null
+     },
+     "timeEstimations": {
+      "delivery": {
+       "duration": {
+        "upperLimitInMinutes": 40,
+        "lowerLimitInMinutes": 30,
+        "__typename": "TimeEstimationDuration"
+       },
+       "minimumTime": null,
+       "__typename": "TimeEstimation"
+      },
+      "pickup": null,
+      "__typename": "TimeEstimations"
+     },
+     "vendorChainData": {
+      "code": "co4jt",
+      "name": "McDonald's 麥當勞",
+      "mainVendorCode": "y0om",
+      "urlKey": "mcdonalds-mai-dang-lao",
+      "__typename": "VendorChainData"
+     },
+     "characteristics": {
+      "cuisines": [
+       {
+        "imageUrl": "",
+        "id": "177",
+        "name": "漢堡",
+        "__typename": "Cuisine"
+       },
+       {
+        "imageUrl": "",
+        "id": "179",
+        "name": "歐美",
+        "__typename": "Cuisine"
+       }
+      ],
+      "foodCharacteristics": null,
+      "primaryCuisine": {
+       "name": "歐美",
+       "id": "179",
+       "imageUrl": "",
+       "__typename": "Cuisine"
+      },
+      "__typename": "VendorCharacteristics"
+     },
+     "location": {
+      "addressLine1": "[REDACTED:address]",
+      "addressLine2": null,
+      "city": {
+       "id": "",
+       "name": "[REDACTED:address]",
+       "urlKey": "[REDACTED:address]",
+       "__typename": "[REDACTED:address]"
+      },
+      "latitude": 25.033964,
+      "longitude": 121.564468,
+      "postcode": "[REDACTED:address]",
+      "__typename": "[REDACTED:address]"
+     },
+     "description": "(removed)",
+     "images": {
+      "listing": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+      "logo": "https://images.deliveryhero.io/image/fd-tw/tw-logos/co4jt-logo.jpg",
+      "__typename": "VendorImagesData"
+     },
+     "schedules": {
+      "weekly": {
+       "monday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "tuesday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "wednesday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "thursday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "friday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "saturday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "sunday": {
+        "delivery": [
+         {
+          "timeOfDayRange": {
+           "from": "05:00",
+           "to": "10:15",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "10:30",
+           "to": "24:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "00:00",
+           "to": "01:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "01:00",
+           "to": "02:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         },
+         {
+          "timeOfDayRange": {
+           "from": "02:00",
+           "to": "04:00",
+           "__typename": "TimeOfDayRange"
+          },
+          "__typename": "TimeOfDayRangeWithReason"
+         }
+        ],
+        "__typename": "DaySchedule"
+       },
+       "__typename": "WeeklySchedule"
+      },
+      "__typename": "VendorSchedule"
+     },
+     "isActive": true,
+     "isDeliveryEnabled": true,
+     "menu": {
+      "id": "388886",
+      "code": "Menu#4",
+      "title": "一般時段 Regular Menu",
+      "description": "一般時段 Regular Menu",
+      "startTime": "00:00:00",
+      "endTime": "00:59:00",
+      "expeditionType": "DELIVERY",
+      "vendorCode": "b6wb",
+      "categories": [
+       {
+        "id": "4337327",
+        "code": "Category#33978",
+        "title": "優惠推薦 Offers",
+        "description": "優惠推薦 Offers",
+        "partner": null,
+        "products": [
+         {
+          "id": "157379049",
+          "code": "2|33978%68877",
+          "title": "套餐-正宗韓式辣醬鷄腿堡 Gochujang Butter Spicy McCrispy Burger Meal",
+          "description": "套餐含正宗韓式辣醬鷄腿堡一份、配餐選擇與飲料選擇。 Comes with Side choice and beverage.",
+          "image": {
+           "url": "https://foodpanda.dhmedia.io/image/menu-import-gateway-prd/regions/AS/chains/mcd_taiwan/9bd6f0ebcd4180ad4a6630001608e386.jpg",
+           "__typename": "ProductImage"
+          },
+          "isAlcoholicItem": false,
+          "isBundle": false,
+          "isCustomizable": true,
+          "isSoldOut": false,
+          "dietaryAttributes": null,
+          "menuCategory": {
+           "id": "4337327",
+           "code": "Category#33978",
+           "title": "優惠推薦 Offers",
+           "masterCategory": {
+            "id": "0",
+            "__typename": "RestaurantMasterCategory"
+           },
+           "__typename": "RestaurantMenuCategory"
+          },
+          "variations": [
+           {
+            "id": "160594762",
+            "code": "2|33978%68877",
+            "remoteCode": "2|33978%68877",
+            "containerPrice": null,
+            "price": 255,
+            "discountedPrice": null,
+            "unitPricingInfo": null,
+            "__typename": "RestaurantVariationData"
+           }
+          ],
+          "tags": null,
+          "priceAttributes": {
+           "originalPrice": 255,
+           "discountedPrice": null,
+           "displayFromTag": true,
+           "containerPrice": null,
+           "__typename": "PriceAttributes"
+          },
+          "__typename": "RestaurantProductData"
+         },
+         {
+          "id": "157379048",
+          "code": "2|33978%68894",
+          "title": "韓式泡菜風味搖搖薯條第二件半價 McShaker Fries Kimchi Flavor 2nd 50%off",
+          "description": "內含2份韓式泡菜風味搖搖薯條，售價已為優惠價 Comes with McShaker Fries Kimchi Flavor*2",
+          "image": {
+           "url": "https://foodpanda.dhmedia.io/image/menu-import-gateway-prd/regions/AS/chains/mcd_taiwan/1707ca66701c006b5016a2a45ae0ff86.jpg",
+           "__typename": "ProductImage"
+          },
+          "isAlcoholicItem": false,
+          "isBundle": false,
+          "isCustomizable": true,
+          "isSoldOut": false,
+          "dietaryAttributes": null,
+          "menuCategory": {
+           "id": "4337327",
+           "code": "Category#33978",
+           "title": "優惠推薦 Offers",
+           "masterCategory": {
+            "id": "0",
+            "__typename": "RestaurantMasterCategory"
+           },
+           "__typename": "RestaurantMenuCategory"
+          },
+          "variations": [
+           {
+            "id": "160594761",
+            "code": "2|33978%68894",
+            "remoteCode": "2|33978%68894",
+            "containerPrice": null,
+            "price": 108,
+            "discountedPrice": null,
+            "unitPricingInfo": null,
+            "__typename": "RestaurantVariationData"
+           }
+          ],
+          "tags": null,
+          "priceAttributes": {
+           "originalPrice": 108,
+           "discountedPrice": null,
+           "displayFromTag": false,
+           "containerPrice": null,
+           "__typename": "PriceAttributes"
+          },
+          "__typename": "RestaurantProductData"
+         },
+         {
+          "id": "157379050",
+          "code": "2|33978%68871",
+          "title": "套餐-正宗韓式辣醬四盎司牛肉堡 Gochujang Butter Spicy Angus Beef Burger Meal",
+          "description": "套餐含正宗韓式辣醬四盎司牛肉堡一份、配餐選擇與飲料選擇。 Comes with Side choice and beverage.",
+          "image": {
+           "url": "https://foodpanda.dhmedia.io/image/menu-import-gateway-prd/regions/AS/chains/mcd_taiwan/7eed6b0e772d09c66068e5586bc7cf60.jpg",
+           "__typename": "ProductImage"
+          },
+          "isAlcoholicItem": false,
+          "isBundle": false,
+          "isCustomizable": true,
+          "isSoldOut": false,
+          "dietaryAttributes": null,
+          "menuCategory": {
+           "id": "4337327",
+           "code": "Category#33978",
+           "title": "優惠推薦 Offers",
+           "masterCategory": {
+            "id": "0",
+            "__typename": "RestaurantMasterCategory"
+           },
+           "__typename": "RestaurantMenuCategory"
+          },
+          "variations": [
+           {
+            "id": "160594763",
+            "code": "2|33978%68871",
+            "remoteCode": "2|33978%68871",
+            "containerPrice": null,
+            "price": 255,
+            "discountedPrice": null,
+            "unitPricingInfo": null,
+            "__typename": "RestaurantVariationData"
+           }
+          ],
+          "tags": null,
+          "priceAttributes": {
+           "originalPrice": 255,
+           "discountedPrice": null,
+           "displayFromTag": true,
+           "containerPrice": null,
+           "__typename": "PriceAttributes"
+          },
+          "__typename": "RestaurantProductData"
+         }
+        ],
+        "__typename": "RestaurantMenuCategory"
+       },
+       {
+        "id": "4337330",
+        "code": "Category#33429",
+        "title": "單點 A La Carte",
+        "description": "單點 A La Carte",
+        "partner": null,
+        "products": [
+         {
+          "id": "70199912",
+          "code": "2|33429%67129",
+          "title": "原味麥脆鷄腿(1塊) Original McCrispy (1pc)",
+          "description": "棒腿或大腿 部位恕不指定、更換 Drumsticks & thighs are distributed randomly",
+          "image": {
+           "url": "https://foodpanda.dhmedia.io/image/menu-import-gateway-prd/regions/AS/chains/mcd_taiwan/87ad7b2e524ba7993a2f7ab09152fa11.jpg",
+           "__typename": "ProductImage"
+          },
+          "isAlcoholicItem": false,
+          "isBundle": false,
+          "isCustomizable": false,
+          "isSoldOut": false,
+          "dietaryAttributes": null,
+          "menuCategory": {
+           "id": "4337330",
+           "code": "Category#33429",
+           "title": "單點 A La Carte",
+           "masterCategory": {
+            "id": "0",
+            "__typename": "RestaurantMasterCategory"
+           },
+           "__typename": "RestaurantMenuCategory"
+          },
+          "variations": [
+           {
+            "id": "71780917",
+            "code": "2|33429%67129",
+            "remoteCode": "2|33429%67129",
+            "containerPrice": null,
+            "price": 79,
+            "discountedPrice": null,
+            "unitPricingInfo": null,
+            "__typename": "RestaurantVariationData"
+           }
+          ],
+          "tags": null,
+          "priceAttributes": {
+           "originalPrice": 79,
+           "discountedPrice": null,
+           "displayFromTag": false,
+           "containerPrice": null,
+           "__typename": "PriceAttributes"
+          },
+          "__typename": "RestaurantProductData"
+         },
+         {
+          "id": "70199913",
+          "code": "2|33429%67130",
+          "title": "辣味麥脆鷄腿(1塊) Spicy McCrispy (1pc)",
+          "description": "棒腿或大腿 部位恕不指定、更換 Drumsticks & thighs are distributed randomly",
+          "image": {
+           "url": "https://foodpanda.dhmedia.io/image/menu-import-gateway-prd/regions/AS/chains/mcd_taiwan/61a3a9998b78355cc490da0fd1fb0a32.jpg",
+           "__typename": "ProductImage"
+          },
+          "isAlcoholicItem": false,
+          "isBundle": false,
+          "isCustomizable": false,
+          "isSoldOut": false,
+          "dietaryAttributes": null,
+          "menuCategory": {
+           "id": "4337330",
+           "code": "Category#33429",
+           "title": "單點 A La Carte",
+           "masterCategory": {
+            "id": "0",
+            "__typename": "RestaurantMasterCategory"
+           },
+           "__typename": "RestaurantMenuCategory"
+          },
+          "variations": [
+           {
+            "id": "71780918",
+            "code": "2|33429%67130",
+            "remoteCode": "2|33429%67130",
+            "containerPrice": null,
+            "price": 79,
+            "discountedPrice": null,
+            "unitPricingInfo": null,
+            "__typename": "RestaurantVariationData"
+           }
+          ],
+          "tags": null,
+          "priceAttributes": {
+           "originalPrice": 79,
+           "discountedPrice": null,
+           "displayFromTag": false,
+           "containerPrice": null,
+           "__typename": "PriceAttributes"
+          },
+          "__typename": "RestaurantProductData"
+         }
+        ],
+        "__typename": "RestaurantMenuCategory"
+       }
+      ],
+      "__typename": "RestaurantMenu"
+     }
+    }
+   }
+  },
+  "extensions": {
+   "x-request-id": "ab121ad5-fe62-4718-a856-c5e2eb233c07"
+  }
+ }
+}

@@ -1,0 +1,592 @@
+{
+ "request": {
+  "operationName": "SearchResults",
+  "variables": {
+   "searchResultsParams": {
+    "query": "麥當勞",
+    "latitude": 25.033964,
+    "longitude": 121.564468,
+    "locale": "zh_TW",
+    "languageId": 6,
+    "expeditionType": "DELIVERY",
+    "customerType": "B2C",
+    "verticalTypes": [
+     "RESTAURANTS"
+    ]
+   },
+   "skipQueryCorrection": true
+  },
+  "extensions": {
+   "clientLibrary": {
+    "name": "@apollo/client",
+    "version": "4.0.12"
+   },
+   "persistedQuery": {
+    "version": 1,
+    "sha256Hash": "21ed33404faa7c57b9d8110d16c7daf010b29c1a0103c2f2c9d318c83f751177"
+   }
+  }
+ },
+ "response": {
+  "data": {
+   "searchPage": {
+    "components": [
+     {
+      "__typename": "SearchVendorComponent",
+      "isExactMatch": true,
+      "vendorData": {
+       "__typename": "VendorData",
+       "code": "b2wy",
+       "name": "測試餐廳 1",
+       "isSuperVendor": false,
+       "availability": {
+        "distanceInMeters": 1000,
+        "isAffectedByShrinkage": false,
+        "nextAvailableAt": null,
+        "status": "OPEN",
+        "__typename": "VendorAvailability"
+       },
+       "verticalParent": {
+        "code": "Restaurant",
+        "__typename": "VerticalParent"
+       },
+       "verticalSegment": {
+        "code": "restaurants",
+        "__typename": "VerticalSegment"
+       },
+       "resolutionFallback": {
+        "minimumDeliveryTime": 40,
+        "pricing": {
+         "deliveryFee": 15,
+         "minimumOrderValue": 79,
+         "__typename": "VendorAvailabilityPricingFallbacks"
+        },
+        "__typename": "VendorAvailabilityFallbacks"
+       },
+       "nonCommissionRevenueInfo": null,
+       "images": {
+        "listing": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+        "logo": "https://images.deliveryhero.io/image/fd-tw/tw-logos/co4jt-logo.jpg",
+        "__typename": "VendorImagesData"
+       },
+       "vendorBudget": {
+        "budget": 2,
+        "__typename": "VendorBudget"
+       },
+       "vendorChainData": {
+        "code": "co4jt",
+        "name": "McDonald's 麥當勞",
+        "mainVendorCode": "y0om",
+        "urlKey": "mcdonalds-mai-dang-lao",
+        "__typename": "VendorChainData"
+       },
+       "isFavoriteVendor": false,
+       "timeEstimations": {
+        "delivery": {
+         "duration": {
+          "upperLimitInMinutes": 30,
+          "lowerLimitInMinutes": 20,
+          "__typename": "TimeEstimationDuration"
+         },
+         "minimumTime": null,
+         "__typename": "TimeEstimation"
+        },
+        "pickup": null,
+        "__typename": "TimeEstimations"
+       },
+       "timezone": "Asia/Taipei",
+       "vendorRating": {
+        "count": 44300,
+        "value": 4.8,
+        "__typename": "VendorRating"
+       },
+       "deliveryProvider": "PLATFORM",
+       "incentives": [
+        {
+         "id": "dynamic-pricing:subscription:6989:b2wy",
+         "__typename": "IncentiveData"
+        }
+       ],
+       "urlKey": "test-vendor",
+       "dynamicPricing": {
+        "deliveryFee": {
+         "total": 29,
+         "__typename": "DynamicPricingDeliveryFee"
+        },
+        "minimumOrderValue": {
+         "total": 79,
+         "__typename": "DynamicPricingMinimumOrderValue"
+        },
+        "__typename": "DynamicPricing"
+       },
+       "vendorTile": {
+        "type": "L",
+        "media": {
+         "url": "https://foodpanda.dhmedia.io/image/fd-tw/LH/co4jt-listing.jpg",
+         "__typename": "Image"
+        },
+        "primaryTags": null,
+        "secondaryTags": [],
+        "vendorInfo": [
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_TIME",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "NEXTGEN_VIN_DELIVERY_SAVER_TIME_VARIANT_TILE",
+             "arguments": [
+              "20"
+             ],
+             "isTranslationKey": true,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_BUDGET_SIGN",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$$",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_CUISINES",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "歐美",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ],
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_FEE",
+           "elements": [
+            {
+             "__typename": "VendorTileIcon",
+             "iconId": "RIDER",
+             "iconDecorators": []
+            },
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$29",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ]
+        ],
+        "__typename": "VendorTile"
+       }
+      },
+      "totalChainVendors": 6
+     },
+     {
+      "__typename": "SearchVendorComponent",
+      "isExactMatch": false,
+      "vendorData": {
+       "__typename": "VendorData",
+       "code": "wyml",
+       "name": "測試餐廳 2",
+       "isSuperVendor": false,
+       "availability": {
+        "distanceInMeters": 1000,
+        "isAffectedByShrinkage": false,
+        "nextAvailableAt": null,
+        "status": "OPEN",
+        "__typename": "VendorAvailability"
+       },
+       "verticalParent": {
+        "code": "Restaurant",
+        "__typename": "VerticalParent"
+       },
+       "verticalSegment": {
+        "code": "restaurants",
+        "__typename": "VerticalSegment"
+       },
+       "resolutionFallback": {
+        "minimumDeliveryTime": 40,
+        "pricing": {
+         "deliveryFee": 15,
+         "minimumOrderValue": 79,
+         "__typename": "VendorAvailabilityPricingFallbacks"
+        },
+        "__typename": "VendorAvailabilityFallbacks"
+       },
+       "nonCommissionRevenueInfo": {
+        "pricingModel": "cpc",
+        "token": "[REDACTED:secret]",
+        "__typename": "VendorNonCommissionRevenueInfo"
+       },
+       "images": {
+        "listing": "https://images.deliveryhero.io/image/fd-tw/LH/wyml-listing.jpg",
+        "logo": "https://images.deliveryhero.io/image/fd-tw/LH/wyml-hero.jpg",
+        "__typename": "VendorImagesData"
+       },
+       "vendorBudget": {
+        "budget": 1,
+        "__typename": "VendorBudget"
+       },
+       "vendorChainData": {
+        "code": "cu2er",
+        "name": "堡之林",
+        "mainVendorCode": "wyml",
+        "urlKey": "bao-zhi-lin",
+        "__typename": "VendorChainData"
+       },
+       "isFavoriteVendor": false,
+       "timeEstimations": {
+        "delivery": {
+         "duration": {
+          "upperLimitInMinutes": 30,
+          "lowerLimitInMinutes": 20,
+          "__typename": "TimeEstimationDuration"
+         },
+         "minimumTime": null,
+         "__typename": "TimeEstimation"
+        },
+        "pickup": null,
+        "__typename": "TimeEstimations"
+       },
+       "timezone": "Asia/Taipei",
+       "vendorRating": {
+        "count": 1996,
+        "value": 4.8,
+        "__typename": "VendorRating"
+       },
+       "deliveryProvider": "PLATFORM",
+       "incentives": [
+        {
+         "id": "dynamic-pricing:subscription:6989:wyml",
+         "__typename": "IncentiveData"
+        }
+       ],
+       "urlKey": "test-vendor",
+       "dynamicPricing": {
+        "deliveryFee": {
+         "total": 35,
+         "__typename": "DynamicPricingDeliveryFee"
+        },
+        "minimumOrderValue": {
+         "total": 79,
+         "__typename": "DynamicPricingMinimumOrderValue"
+        },
+        "__typename": "DynamicPricing"
+       },
+       "vendorTile": {
+        "type": "L",
+        "media": {
+         "url": "https://images.deliveryhero.io/image/fd-tw/LH/wyml-listing.jpg",
+         "__typename": "Image"
+        },
+        "primaryTags": null,
+        "secondaryTags": [
+         {
+          "id": "TAG_PROMOTED",
+          "elements": [
+           {
+            "__typename": "VendorTileText",
+            "textId": null,
+            "text": "NEXTGEN_FEATURED_TAG",
+            "arguments": [],
+            "isTranslationKey": true,
+            "textDecorators": []
+           }
+          ],
+          "__typename": "VendorTileElementGroup"
+         }
+        ],
+        "vendorInfo": [
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_TIME",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "NEXTGEN_VIN_DELIVERY_SAVER_TIME_VARIANT_TILE",
+             "arguments": [
+              "20"
+             ],
+             "isTranslationKey": true,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_BUDGET_SIGN",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_CUISINES",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "歐美",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ],
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_FEE",
+           "elements": [
+            {
+             "__typename": "VendorTileIcon",
+             "iconId": "RIDER",
+             "iconDecorators": []
+            },
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$35",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ]
+        ],
+        "__typename": "VendorTile"
+       }
+      },
+      "totalChainVendors": null
+     },
+     {
+      "__typename": "SearchVendorComponent",
+      "isExactMatch": false,
+      "vendorData": {
+       "__typename": "VendorData",
+       "code": "rbbf",
+       "name": "測試餐廳 3",
+       "isSuperVendor": false,
+       "availability": {
+        "distanceInMeters": 1000,
+        "isAffectedByShrinkage": false,
+        "nextAvailableAt": null,
+        "status": "OPEN",
+        "__typename": "VendorAvailability"
+       },
+       "verticalParent": {
+        "code": "Restaurant",
+        "__typename": "VerticalParent"
+       },
+       "verticalSegment": {
+        "code": "restaurants",
+        "__typename": "VerticalSegment"
+       },
+       "resolutionFallback": {
+        "minimumDeliveryTime": 40,
+        "pricing": {
+         "deliveryFee": 15,
+         "minimumOrderValue": 79,
+         "__typename": "VendorAvailabilityPricingFallbacks"
+        },
+        "__typename": "VendorAvailabilityFallbacks"
+       },
+       "nonCommissionRevenueInfo": null,
+       "images": {
+        "listing": "https://images.deliveryhero.io/image/fd-tw/LH/rbbf-listing.jpg",
+        "logo": "https://images.deliveryhero.io/image/fd-tw/LH/rbbf-hero.jpg",
+        "__typename": "VendorImagesData"
+       },
+       "vendorBudget": {
+        "budget": 3,
+        "__typename": "VendorBudget"
+       },
+       "vendorChainData": null,
+       "isFavoriteVendor": false,
+       "timeEstimations": {
+        "delivery": {
+         "duration": {
+          "upperLimitInMinutes": 45,
+          "lowerLimitInMinutes": 30,
+          "__typename": "TimeEstimationDuration"
+         },
+         "minimumTime": null,
+         "__typename": "TimeEstimation"
+        },
+        "pickup": null,
+        "__typename": "TimeEstimations"
+       },
+       "timezone": "Asia/Taipei",
+       "vendorRating": {
+        "count": 239,
+        "value": 4.8,
+        "__typename": "VendorRating"
+       },
+       "deliveryProvider": "PLATFORM",
+       "incentives": [
+        {
+         "id": "gis:0e0ebbbd-5f6a-4fb7-82ab-612cd5e6e1d4",
+         "__typename": "IncentiveData"
+        },
+        {
+         "id": "gis:e370cd3e-a22a-4117-b9df-9dc6df714c3c",
+         "__typename": "IncentiveData"
+        },
+        {
+         "id": "dynamic-pricing:subscription:6989:rbbf",
+         "__typename": "IncentiveData"
+        }
+       ],
+       "urlKey": "test-vendor",
+       "dynamicPricing": {
+        "deliveryFee": {
+         "total": 35,
+         "__typename": "DynamicPricingDeliveryFee"
+        },
+        "minimumOrderValue": {
+         "total": 79,
+         "__typename": "DynamicPricingMinimumOrderValue"
+        },
+        "__typename": "DynamicPricing"
+       },
+       "vendorTile": {
+        "type": "L",
+        "media": {
+         "url": "https://images.deliveryhero.io/image/fd-tw/LH/rbbf-listing.jpg",
+         "__typename": "Image"
+        },
+        "primaryTags": [
+         {
+          "id": "TAG_DEAL",
+          "elements": [
+           {
+            "__typename": "VendorTileIcon",
+            "iconId": "DISCOUNT",
+            "iconDecorators": []
+           },
+           {
+            "__typename": "VendorTileText",
+            "textId": null,
+            "text": "滿 $ 200 享 85 折",
+            "arguments": [],
+            "isTranslationKey": false,
+            "textDecorators": []
+           }
+          ],
+          "__typename": "VendorTileElementGroup"
+         }
+        ],
+        "secondaryTags": [],
+        "vendorInfo": [
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_TIME",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "NEXTGEN_VIN_DELIVERY_SAVER_TIME_VARIANT_TILE",
+             "arguments": [
+              "30"
+             ],
+             "isTranslationKey": true,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_BUDGET_SIGN",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$$$",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          },
+          {
+           "id": "VENDOR_INFO_CUISINES",
+           "elements": [
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "小吃",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ],
+         [
+          {
+           "id": "VENDOR_INFO_DELIVERY_FEE",
+           "elements": [
+            {
+             "__typename": "VendorTileIcon",
+             "iconId": "RIDER",
+             "iconDecorators": []
+            },
+            {
+             "__typename": "VendorTileText",
+             "textId": null,
+             "text": "$35",
+             "arguments": [],
+             "isTranslationKey": false,
+             "textDecorators": []
+            }
+           ],
+           "__typename": "VendorTileElementGroup"
+          }
+         ]
+        ],
+        "__typename": "VendorTile"
+       }
+      },
+      "totalChainVendors": 2
+     }
+    ]
+   }
+  },
+  "extensions": {
+   "x-request-id": "ec0f3c45-4dd2-485d-b10b-e0dcafcedb59"
+  }
+ }
+}

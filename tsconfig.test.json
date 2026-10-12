@@ -9,6 +9,8 @@
     "src/payment-method.ts",
     "src/config.ts",
     "src/token-check.ts",
+    "src/tw-api.ts",
+    "src/types.ts",
     "test/**/*.ts"
   ]
 }

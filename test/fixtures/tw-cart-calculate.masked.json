@@ -1,0 +1,402 @@
+{
+ "request": {
+  "auto_apply_voucher": false,
+  "supported_features": {
+   "support_voucher_soft_fail": true,
+   "support_banned_products_soft_fail": true,
+   "small_order_fee_enabled": true,
+   "pd-qc-weight-stepper": false,
+   "pd-tx-cash-to-online-payment-surcharge": false,
+   "product_sampling": false,
+   "sustainability_fees_enabled": true
+  },
+  "payment": {
+   "loyalty": {
+    "balance": null,
+    "points": 0,
+    "selected_promotion_id": ""
+   },
+   "methods": [],
+   "allowance_amount": 0
+  },
+  "group_order": null,
+  "voucher_context": null,
+  "joker_offer_id": "",
+  "source": "",
+  "voucher": "",
+  "order_time": "now",
+  "expedition": {
+   "expedition_options": null,
+   "address_delivery_instructions": null,
+   "rider_tip": null,
+   "delivery_option": "standard",
+   "delivery_address": {
+    "address_line1": "",
+    "address_line2": "",
+    "address_line3": "",
+    "address_line4": "",
+    "address_line5": "",
+    "address_other": "",
+    "phone_number": "",
+    "id": "[REDACTED:address]",
+    "postcode": "[REDACTED:address]",
+    "district": "",
+    "city": "[REDACTED:address]",
+    "label": "",
+    "country_code": "",
+    "room": "",
+    "intercom": "",
+    "flat_number": "",
+    "building": "",
+    "structure": "",
+    "entrance": "",
+    "floor": "",
+    "block": "",
+    "property_type": "",
+    "meta": "[REDACTED:address]",
+    "company": "",
+    "formatted_customer_address": "",
+    "delivery_instructions": "",
+    "type": "",
+    "title": "",
+    "campus": "",
+    "city_id": 0,
+    "is_saving_failed": false
+   },
+   "instructions": "",
+   "delivery_instructions_tags": null,
+   "type": "delivery",
+   "latitude": 25.033964,
+   "longitude": 121.564468,
+   "corporate_location_id": 0
+  },
+  "products": [
+   {
+    "vat_percentage": 0,
+    "code": null,
+    "special_instructions": "",
+    "variation_code": null,
+    "menu_category_code": null,
+    "menu_category_id": 4554051,
+    "menu_id": null,
+    "group_id": null,
+    "sold_out_option": "REFUND",
+    "variation_name": "塑膠袋 Plastic Bag",
+    "products": [],
+    "toppings": [],
+    "tags": [],
+    "original_price": 3,
+    "packaging_charge": 0,
+    "price": 3,
+    "group_order_user_id": 0,
+    "quantity": 1,
+    "variation_id": 71780909,
+    "id": 70199904
+   },
+   {
+    "vat_percentage": 0,
+    "code": "2|33978%68877",
+    "special_instructions": "",
+    "variation_code": "2|33978%68877",
+    "menu_category_code": null,
+    "menu_category_id": null,
+    "menu_id": null,
+    "group_id": null,
+    "sold_out_option": "REFUND",
+    "variation_name": "套餐-正宗韓式辣醬鷄腿堡 Gochujang Butter Spicy McCrispy Burger Meal",
+    "products": [],
+    "toppings": [
+     {
+      "id": 416083281,
+      "name": "薯條 (大) Fries (L)",
+      "price": 0,
+      "vat_percentage": null,
+      "original_price": 0,
+      "quantity": 1
+     },
+     {
+      "id": 416083284,
+      "name": "無需加購薯條 No, thanks",
+      "price": 0,
+      "vat_percentage": null,
+      "original_price": 0,
+      "quantity": 1
+     },
+     {
+      "id": 416083287,
+      "name": "韓式蜜柚氣泡飲 Korean Honey Yuzu Sparkling Drink",
+      "price": 20,
+      "vat_percentage": null,
+      "original_price": 0,
+      "quantity": 1
+     },
+     {
+      "id": 416083311,
+      "name": "無需加價購 No, thanks",
+      "price": 0,
+      "vat_percentage": null,
+      "original_price": 0,
+      "quantity": 1
+     },
+     {
+      "id": 416083314,
+      "name": "無需加價購 No, thanks",
+      "price": 0,
+      "vat_percentage": null,
+      "original_price": 0,
+      "quantity": 1
+     },
+     {
+      "id": 416083316,
+      "name": "番茄醬包 Ketchup Packets",
+      "price": 0,
+      "vat_percentage": null,
+      "original_price": 0,
+      "quantity": 1
+     }
+    ],
+    "tags": [],
+    "original_price": 275,
+    "packaging_charge": 0,
+    "price": 275,
+    "group_order_user_id": 0,
+    "quantity": 1,
+    "variation_id": 160594762,
+    "id": 157379049
+   }
+  ],
+  "vendor": {
+   "code": "b6wb",
+   "latitude": 25.033964,
+   "longitude": 121.564468,
+   "marketplace": false,
+   "vertical": "restaurants"
+  },
+  "participants": [],
+  "items": null
+ },
+ "response": {
+  "joker": null,
+  "dynamic_pricing": {
+   "customer_tag": {
+    "tag": "",
+    "variant": ""
+   },
+   "price_reasons": [],
+   "fleet_utilization": 0,
+   "subscription_benefits_applied": false,
+   "subscription_service_fee_benefits_applied": false,
+   "subscription_priority_delivery_fee_benefits": null
+  },
+  "upselling": null,
+  "voucher": null,
+  "small_order_fee": {
+   "hard_minimum_order_value": {
+    "amount": 1,
+    "fee": 0
+   },
+   "soft_minimum_order_value": {
+    "amount": 79,
+    "fee": 0
+   },
+   "cap": 19
+  },
+  "order_time": "2026-10-13T00:23:27+0800",
+  "products": [
+   {
+    "discount": null,
+    "special_instructions": "",
+    "variation_name": "塑膠袋 Plastic Bag",
+    "sold_out_option": "REFUND",
+    "toppings": [],
+    "price": 3,
+    "packaging_price": 0,
+    "original_price": 3,
+    "quantity": 1,
+    "quantity_auto_added": 0,
+    "id": 70199904,
+    "variation_id": 71780909,
+    "is_available": true
+   },
+   {
+    "discount": null,
+    "special_instructions": "",
+    "variation_name": "套餐-正宗韓式辣醬鷄腿堡 Gochujang Butter Spicy McCrispy Burger Meal",
+    "sold_out_option": "REFUND",
+    "toppings": [
+     {
+      "name": "薯條 (大) Fries (L)",
+      "price": 0,
+      "original_price": 0,
+      "id": 416083281,
+      "is_available": true,
+      "quantity": 1
+     },
+     {
+      "name": "無需加購薯條 No, thanks",
+      "price": 0,
+      "original_price": 0,
+      "id": 416083284,
+      "is_available": true,
+      "quantity": 1
+     },
+     {
+      "name": "韓式蜜柚氣泡飲 Korean Honey Yuzu Sparkling Drink",
+      "price": 20,
+      "original_price": 0,
+      "id": 416083287,
+      "is_available": true,
+      "quantity": 1
+     },
+     {
+      "name": "無需加價購 No, thanks",
+      "price": 0,
+      "original_price": 0,
+      "id": 416083311,
+      "is_available": true,
+      "quantity": 1
+     },
+     {
+      "name": "無需加價購 No, thanks",
+      "price": 0,
+      "original_price": 0,
+      "id": 416083314,
+      "is_available": true,
+      "quantity": 1
+     },
+     {
+      "name": "番茄醬包 Ketchup Packets",
+      "price": 0,
+      "original_price": 0,
+      "id": 416083316,
+      "is_available": true,
+      "quantity": 1
+     }
+    ],
+    "price": 275,
+    "packaging_price": 0,
+    "original_price": 275,
+    "quantity": 1,
+    "quantity_auto_added": 0,
+    "id": 157379049,
+    "variation_id": 160594762,
+    "is_available": true
+   }
+  ],
+  "expedition": {
+   "time": 40,
+   "delivery_duration_range": {
+    "lower_limit_in_minutes": 35,
+    "upper_limit_in_minutes": 45
+   },
+   "timepicker": [],
+   "packaging_charge_details": null,
+   "rider_tip": null,
+   "delivery_option": "standard",
+   "type": "delivery",
+   "available_delivery_options": [
+    {
+     "time": 35,
+     "time_range": {
+      "lower_limit_in_minutes": 30,
+      "upper_limit_in_minutes": 40
+     },
+     "type": "priority",
+     "fee": 55,
+     "fee_without_discount": 55,
+     "total_fee": 124,
+     "original_delivery_option_fee": 124
+    },
+    {
+     "time": 40,
+     "time_range": {
+      "lower_limit_in_minutes": 35,
+      "upper_limit_in_minutes": 45
+     },
+     "type": "standard",
+     "fee": 69,
+     "total_fee": 69,
+     "original_delivery_option_fee": 69
+    }
+   ],
+   "adjustments": {
+    "next_discount": {
+     "difference": 0,
+     "discount": 0,
+     "progress_percentage": 100,
+     "is_free": false,
+     "show_message": false
+    },
+    "current_discount": 0
+   },
+   "selected_delivery_option": {
+    "type": "standard",
+    "delivery_fee": 69,
+    "delivery_fee_discount": 0,
+    "delivery_fee_without_discount": 69
+   },
+   "original_delivery_fee": 69,
+   "packaging_charge": 0,
+   "delivery_fee": 69
+  },
+  "payment": {
+   "methods": [],
+   "loyalty": {
+    "balance": null,
+    "earning_type": "",
+    "selected_promotion_id": "",
+    "partner_name": "",
+    "buckets": null,
+    "promotions": null,
+    "discount": 0,
+    "earned": 0,
+    "points": 0
+   },
+   "service_fee": 19,
+   "subtotal": 278,
+   "discounted_subtotal": 278,
+   "vat_total": 16.52,
+   "discount": 0,
+   "payable_total": 366,
+   "payable_total_without_voucher": 366,
+   "crossed_out_total": 366,
+   "total_savings": 0,
+   "total": 366
+  },
+  "payment_limits": [
+   {
+    "limit_amount": 278,
+    "limit_code": "foodafterdiscount"
+   },
+   {
+    "limit_amount": 366,
+    "limit_code": "orderamountwithoutpaymentfee"
+   }
+  ],
+  "minimum_order_value": {
+   "amount": 79,
+   "fee": 0
+  },
+  "subscription": {
+   "saving": {
+    "type": "estimated",
+    "breakdown": [
+     {
+      "type": "free_delivery",
+      "value": 69,
+      "pro_price": 0
+     },
+     {
+      "type": "service_fee",
+      "value": 10,
+      "pro_price": 9
+     }
+    ],
+    "value": 79,
+    "segment": "pro",
+    "show_pro_comparison": true,
+    "payable_pro_total": 287
+   }
+  }
+ }
+}
