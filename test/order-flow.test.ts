@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -477,4 +477,24 @@ test("the check-the-app lock survives a restart, holds no order details, and is 
 test("a client without an injected http cannot reach the network from a test", async () => {
   const fp = new FoodpandaClient(null, 25.033964, 121.564468);
   await assert.rejects(fp.searchRestaurants("x"), /Network access in a test/);
+});
+
+test("if the lock file cannot be written, place_order still says 'status unknown' and the lock holds in memory", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fp-lock-"));
+  // A path under a regular file can never be created.
+  const blocker = join(dir, "not-a-dir");
+  writeFileSync(blocker, "x");
+  const { fake, call, close } = await setup(undefined, join(blocker, "order-check-required.json"));
+  try {
+    fake.state.checkout = () => ({ status: 200, text: JSON.stringify({ id: "fake-order-6" }) });
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    const res = await call("place_order", { confirmation_code });
+    assert.match(res.text, /order status is unknown/);
+    await fillCart(call);
+    assert.match((await call("prepare_order", { payment_method: "cash" })).text, /previous order's status is unknown/);
+  } finally {
+    await close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

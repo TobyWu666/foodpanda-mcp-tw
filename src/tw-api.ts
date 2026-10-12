@@ -890,7 +890,7 @@ const STATUS_KEY = /(^|_)(status|result|state)$/;
 const SUCCESS_VALUE = /^(success|succeeded|successful|paid|completed|complete|confirmed|accepted)$/i;
 /** Keys whose presence (non-empty) means the customer still has something to do. */
 const PENDING_KEY =
-  /redirect|action|deeplink|deep_link|app_link|applink|(^|_)url$|(^|_)link$|challenge|3ds|(^|_)qr|next_step|webview|form_html|(^|_)location$|(^|_)target$/;
+  /redirect|action|deeplink|deep_link|app_link|applink|(^|_)url$|(^|_)uri$|(^|_)link$|challenge|3ds|(^|_)qr|next_step|webview|form_html|(^|_)location$|(^|_)target$/;
 
 function isEmpty(value: unknown): boolean {
   if (value === null || value === undefined || value === "" || value === false) return true;
@@ -909,8 +909,8 @@ interface CheckoutSignals {
 /** Objects whose status speaks for the order itself; a status on vouchers, items or incentives does not. */
 const ORDER_SCOPE_KEYS = new Set(["order", "payment", "data"]);
 
-/** Any URL: https, or an app deep link such as line://, intent:// or another custom scheme. */
-const LINK_VALUE = /^(?:[a-z][a-z0-9+.-]*:\/\/|intent:)/i;
+/** Any URL: https, an app deep link (line://, intent:, another custom scheme), or a bare LINE Pay address. */
+const LINK_VALUE = /^(?:[a-z][a-z0-9+.-]*:\/\/|intent:)|pay\.line\.me/i;
 
 /**
  * Walk the whole body, every depth and array, collecting pending signs everywhere,
@@ -944,6 +944,10 @@ function checkoutSignals(
     if (PENDING_KEY.test(key) && !isEmpty(value)) out.pending.push(here);
     if ((key.startsWith("requires_") || key === "is_pending" || key === "pending") && value === true) {
       out.pending.push(`${here}=true`);
+    }
+    if (/^(awaiting|needs|pending)_/.test(key) && !isEmpty(value) && value !== 0) out.pending.push(here);
+    if ((key === "amount_due" || key === "outstanding" || key.endsWith("_outstanding")) && !isEmpty(value) && value !== 0 && value !== "0") {
+      out.pending.push(`${here}=${JSON.stringify(value)}`);
     }
     if ((key === "paid" || key === "is_paid") && value === false) out.pending.push(`${here}=false`);
     checkoutSignals(value, here, out, orderScope && ORDER_SCOPE_KEYS.has(key));

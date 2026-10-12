@@ -100,6 +100,7 @@ test("checkout response: success values are matched whole and in any key style",
     { id: "o", data: { result: "completed" } },
     { id: "o", payment: { status: "paid" }, vouchers: [{ code: "x" }] },
     { id: "o", data: { order: { status: "confirmed" } } },
+    { id: "o", status: "success", payment: { amount_due: 0, pending_amount: 0 } },
   ]) {
     assert.doesNotThrow(() => parseCheckoutResponse(resp), JSON.stringify(resp));
   }
@@ -148,6 +149,13 @@ const PENDING_SHAPES: Array<[string, unknown]> = [
   ["success only on a voucher", { id: "s1", vouchers: [{ status: "success" }] }],
   ["success only on an incentive", { id: "s2", incentive: { status: "accepted" } }],
   ["success only on an item", { id: "s3", order: { items: [{ status: "confirmed" }] } }],
+  ["bare pay.line.me", { id: "d4", status: "success", payment: { info: "pay.line.me/web/payment/x" } }],
+  ["*_uri key", { id: "d5", status: "success", payment: { callback_uri: "/pay/x" } }],
+  ["awaiting_*", { id: "k1", status: "success", awaiting_confirmation: true }],
+  ["needs_*", { id: "k2", status: "success", payment: { needsAuthentication: true } }],
+  ["pending_*", { id: "k3", status: "success", pending_amount: 366 }],
+  ["amount_due", { id: "k4", status: "success", payment: { amount_due: 366 } }],
+  ["outstanding", { id: "k5", status: "success", outstanding: 366 }],
 ];
 for (const [label, resp] of PENDING_SHAPES) {
   test(`checkout response: ${label} is 'status unknown', not a success`, () => {

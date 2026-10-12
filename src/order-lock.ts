@@ -33,7 +33,9 @@ export class OrderCheckLockStore {
       // A file we cannot read properly still means "check first".
       return { at: "unknown time", reason: UNKNOWN_OUTCOME_REASON };
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      // No file: fall back to memory, which still holds a lock whose file could not be written.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") return this.memory;
       return { at: "unknown time", reason: UNKNOWN_OUTCOME_REASON };
     }
   }
@@ -44,6 +46,17 @@ export class OrderCheckLockStore {
     if (!this.file) return;
     mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
     writeFileSync(this.file, JSON.stringify(lock) + "\n", { mode: 0o600 });
+  }
+
+  /** Lock in memory even if the file cannot be written; returns false when the file write failed. */
+  trySet(at: Date = new Date()): boolean {
+    try {
+      this.set(at);
+      return true;
+    } catch {
+      this.memory = { at: at.toISOString(), reason: UNKNOWN_OUTCOME_REASON };
+      return false;
+    }
   }
 
   clear(): void {

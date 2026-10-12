@@ -1049,7 +1049,10 @@ export class FoodpandaClient {
    */
   private unresolved(err: Error): Error {
     this.clearCart();
-    this.orderCheckLock.set();
+    // Never let a file error hide the "status unknown" message; the lock still holds in memory.
+    if (!this.orderCheckLock.trySet()) {
+      console.error("foodpanda-mcp: could not save the check-the-app lock file; it holds until restart only.");
+    }
     return err;
   }
 
