@@ -16,9 +16,8 @@
 
 import { mkdirSync, rmSync, existsSync } from "fs";
 import { spawn, type ChildProcess } from "child_process";
-import { homedir } from "os";
 import { join } from "path";
-import { getRegionConfig } from "./config.js";
+import { getRegionConfig, stateDir } from "./config.js";
 
 export interface TransportResponse {
   status: number;
@@ -26,7 +25,8 @@ export interface TransportResponse {
   text: string;
 }
 
-const PROFILE_DIR = join(homedir(), ".foodpanda-mcp", "browser-data");
+// Same directory as token-manager's browserProfileDir(): honours FOODPANDA_STATE_DIR.
+const PROFILE_DIR = join(stateDir(), "browser-data");
 
 interface BrowserLike {
   launchPersistentContext: (dir: string, options: Record<string, unknown>) => Promise<any>;

@@ -30,6 +30,29 @@ import { redactForLog } from "./redact.js";
 const GRAPHQL_SEARCH_HASH = () => requireHash("search");
 const GRAPHQL_VENDOR_LIST_HASH = () => requireHash("vendor_list");
 
+/** GraphQL `languageId` variable, left out when the region's id is not known. */
+function languageIdVariable(): { languageId?: number } {
+  const id = getRegionConfig().languageId;
+  return id !== null ? { languageId: id } : {};
+}
+
+/** REST `&language_id=` query parameter, left out when the region's id is not known. */
+function languageIdParam(): string {
+  const id = getRegionConfig().languageId;
+  return id !== null ? `&language_id=${id}` : "";
+}
+
+/** Checkout must name the right entity; never fall back to another country's id. */
+function requireGlobalEntityId(): string {
+  const cfg = getRegionConfig();
+  if (!cfg.globalEntityId) {
+    throw new Error(
+      `No x-global-entity-id configured for ${cfg.countryLabel}. Set FOODPANDA_GLOBAL_ENTITY_ID.`
+    );
+  }
+  return cfg.globalEntityId;
+}
+
 /** Shared shape for vendor menu data from the REST API */
 interface VendorMenuData {
   menu_categories: Array<{
@@ -303,7 +326,7 @@ export class FoodpandaClient {
       body: typeof options.body === "string" ? options.body : undefined,
       headers: {
         ...this.commonHeaders(),
-        "x-pd-language-id": String(cfg.languageId),
+        ...(cfg.languageId !== null ? { "x-pd-language-id": String(cfg.languageId) } : {}),
         // Never set Content-Type on a GET: it turns the request into a CORS preflight, and
         // the storefront's API rejects our OPTIONS ("Failed to fetch" inside the page).
         ...(method === "GET" ? {} : { "Content-Type": "application/json" }),
@@ -340,6 +363,7 @@ export class FoodpandaClient {
         "display-context": displayContext,
         platform: "web",
         locale: cfg.locale,
+        ...(cfg.globalEntityId ? { "x-global-entity-id": cfg.globalEntityId } : {}),
       },
       body: JSON.stringify(body),
     });
@@ -381,7 +405,7 @@ export class FoodpandaClient {
           latitude: this.latitude,
           longitude: this.longitude,
           locale: getRegionConfig().locale,
-          languageId: getRegionConfig().languageId,
+          ...languageIdVariable(),
           expeditionType: "DELIVERY",
           customerType: "B2C",
           verticalTypes: ["RESTAURANTS"],
@@ -523,7 +547,7 @@ export class FoodpandaClient {
           longitude: this.longitude,
           locale: getRegionConfig().locale,
           customerType: "B2C",
-          languageId: getRegionConfig().languageId,
+          ...languageIdVariable(),
           page: "CHAIN_LISTING_PAGE",
           availabilityFilters: {
             chainCodes: [chainCode],
@@ -632,7 +656,7 @@ export class FoodpandaClient {
     const path =
       `/api/v5/vendors/${encodeURIComponent(vendorCode)}` +
       `?include=menus,bundles,multiple_discounts` +
-      `&language_id=${getRegionConfig().languageId}&opening_type=delivery&basket_currency=${getRegionConfig().currency}` +
+      `${languageIdParam()}&opening_type=delivery&basket_currency=${getRegionConfig().currency}` +
       `&latitude=${this.latitude}&longitude=${this.longitude}`;
 
     interface VendorResponse {
@@ -720,7 +744,7 @@ export class FoodpandaClient {
     const path =
       `/api/v5/vendors/${encodeURIComponent(vendorCode)}` +
       `?include=menus,bundles,multiple_discounts` +
-      `&language_id=${getRegionConfig().languageId}&opening_type=delivery&basket_currency=${getRegionConfig().currency}` +
+      `${languageIdParam()}&opening_type=delivery&basket_currency=${getRegionConfig().currency}` +
       `&latitude=${this.latitude}&longitude=${this.longitude}`;
 
     interface VendorMenuResponse {
@@ -1440,7 +1464,7 @@ export class FoodpandaClient {
         headers: {
           "dps-session-id": dpsSessionId,
           "x-caller-platform": "mfe",
-          "x-global-entity-id": "FP_PH",
+          "x-global-entity-id": requireGlobalEntityId(),
         },
       }
     );

@@ -2,7 +2,13 @@
 // All personal data below is made up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { maskCapture, checkFixture, detectLeaks } from "../scripts/mask-capture.mjs";
+import {
+  maskCapture,
+  checkFixture,
+  detectLeaks,
+  FAKE_ID_BASE,
+  PLACEHOLDER_DISTANCE,
+} from "../scripts/mask-capture.mjs";
 import { redactForLog } from "../build/redact.js";
 
 const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoidHcxMjM0NTYifQ.c2lnbmF0dXJlc2lnbmF0dXJl";
@@ -134,7 +140,8 @@ test("1. address objects are masked whole, whatever the field names", () => {
   for (const leak of ["松仁路", "信義區", "台北市", "王小明的家", "B2", "忠孝東路", "25.03518", "121.56781"]) {
     assert.ok(!out.includes(leak), `still contains ${leak}`);
   }
-  assert.equal(masked.delivery_address.id, 987654);
+  // The real id is replaced by a fake one (numbers stay numbers).
+  assert.ok(masked.delivery_address.id >= FAKE_ID_BASE);
   assert.equal(masked.addresses[0].is_selected, true);
 });
 
@@ -234,7 +241,7 @@ test("5. saved-address lists are masked by the objects' own fields", () => {
   for (const leak of ["王小明的家", "Home", "信義區", "B2", "松仁路", "100號", "25.03518", "121.56781"]) {
     assert.ok(!out.includes(leak), `still contains ${leak}`);
   }
-  assert.equal(masked.data.items[0].id, 4242);
+  assert.ok(masked.data.items[0].id >= FAKE_ID_BASE);
   assert.equal(masked.data.items[0].is_selected, true);
 });
 
@@ -285,4 +292,88 @@ test("7. coordinates written as text or in URL paths are masked", () => {
 
 test("English addresses with several commas are detected", () => {
   assert.ok(detectLeaks({ a: "No. 7, Sec. 5, Xinyi Rd., Xinyi Dist." }).some((l) => l.kind === "address"));
+});
+
+// 9. Leftovers found in the first tw capture review: vendor distances, saved-address ids,
+//    the account creation time.
+
+const vendorList = {
+  data: { searchPage: { components: [
+    { vendorData: { code: "aa11", name: "麵店 信義店", availability: { status: "OPEN", distanceInMeters: 328 } } },
+    { vendorData: { code: "bb22", name: "飯店 松山店", availability: { status: "OPEN", distanceInMeters: "6245" } } },
+  ] } },
+};
+
+test("9. vendor distances are replaced with a fixed value", () => {
+  const { masked } = maskCapture(vendorList);
+  const [a, b] = masked.data.searchPage.components;
+  assert.equal(a.vendorData.availability.distanceInMeters, PLACEHOLDER_DISTANCE);
+  assert.equal(b.vendorData.availability.distanceInMeters, String(PLACEHOLDER_DISTANCE));
+  // Vendor names and codes are public and stay.
+  assert.equal(a.vendorData.name, "麵店 信義店");
+  assert.equal(b.vendorData.code, "bb22");
+  assert.deepEqual(checkFixture(masked), []);
+});
+
+test("9. --check flags a real distance", () => {
+  assert.ok(detectLeaks(vendorList).some((p) => p.kind === "distance"));
+});
+
+const addressList = {
+  data: { items: [
+    { id: 111111111, city_id: 3, address_line1: "松仁路", areas: [{ id: 55 }] },
+    { id: 222222222, city_id: 7, address_line1: "中山路" },
+    { id: 333333333, city_id: 3, address_line1: "民生路" },
+    { id: 444444444, city_id: 0, address_line1: "光復路" },
+  ] },
+};
+const checkoutWithAddressId = {
+  customer: { address_id: "222222222" },
+  expedition: { delivery_address: { id: "222222222", address_line1: "中山路" } },
+};
+
+test("9. every saved-address id is faked, consistently across the file", () => {
+  const { masked } = maskCapture({ list: addressList, checkout: checkoutWithAddressId });
+  const ids = masked.list.data.items.map((i) => i.id);
+  for (const id of ids) assert.ok(id >= FAKE_ID_BASE, `real id kept: ${id}`);
+  assert.equal(new Set(ids).size, 4);
+  // 0 means "not set" and is kept.
+  assert.equal(masked.list.data.items[3].city_id, 0);
+  // The same real id gets the same fake id wherever it appears, as a string where it was one.
+  assert.equal(masked.checkout.customer.address_id, String(ids[1]));
+  assert.equal(masked.checkout.expedition.delivery_address.id, String(ids[1]));
+  // Ids inside an address (city, area) are faked too, so the number of cities does not show either.
+  assert.ok(masked.list.data.items.slice(0, 3).every((i) => i.city_id >= FAKE_ID_BASE));
+  assert.ok(masked.list.data.items[0].areas[0].id >= FAKE_ID_BASE);
+  const out = JSON.stringify(masked);
+  for (const real of ["111111111", "222222222", "333333333"]) assert.ok(!out.includes(real), `still contains ${real}`);
+  assert.deepEqual(checkFixture(masked), []);
+});
+
+test("9. --check flags a real address id", () => {
+  const leaks = detectLeaks({ customer: { address_id: 222222222 } });
+  assert.ok(leaks.some((p) => p.kind === "address id"));
+});
+
+test("9. masking twice keeps the same fake ids", () => {
+  const once = maskCapture(addressList).masked;
+  const twice = maskCapture(once).masked;
+  assert.deepEqual(twice, once);
+});
+
+const profile = {
+  data: { id: "c1", first_name: "小明", email: "ming@example.com", created_at: "2019-08-14T09:21:37Z", updated_at: "2026-10-01" },
+};
+
+test("9. account timestamps are coarsened to January 1st", () => {
+  const { masked } = maskCapture(profile);
+  assert.equal(masked.data.created_at, "2019-01-01T00:00:00Z");
+  assert.equal(masked.data.updated_at, "2026-01-01T00:00:00Z");
+  assert.deepEqual(checkFixture(masked), []);
+});
+
+test("9. --check flags an exact account timestamp; vendor timestamps are left alone", () => {
+  assert.ok(detectLeaks(profile).some((p) => p.kind === "account timestamp"));
+  const vendor = { vendor: { code: "aa11", name: "麵店", created_at: "2019-08-14T09:21:37Z" } };
+  assert.equal(maskCapture(vendor).masked.vendor.created_at, "2019-08-14T09:21:37Z");
 });

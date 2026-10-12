@@ -18,6 +18,12 @@
 //   - address objects found by their own fields (address_line1, intercom, …), e.g. the saved
 //     address list, which comes back as `data.items[]`
 //   - GPS-precision coordinates inside Taiwan written in text ("25.12345,121.54321", URL paths)
+//   - distances (`distanceInMeters` and any other key containing `distance`): replaced with a
+//     fixed value, since a few vendor distances to the delivery address locate it
+//   - ids inside addresses (`id`, `city_id`, `area_id`, …) and every `address_id`: replaced with
+//     fake ids, consistently, so the same real id gets the same fake id across the whole file
+//   - timestamps on the account (created_at/updated_at next to a name, email or phone):
+//     coarsened to January 1st of the same year
 //   - URLs (query, path and #fragment) and url-encoded form bodies, field by field
 //   - HAR bodies that are not JSON or a form (HTML pages, scripts) are dropped entirely
 // Keys are matched exactly (after lowercasing and dropping `_`/`-`), so restaurant and dish
@@ -116,12 +122,59 @@ const TW_PHONE_RE = /(?<![\d.])(?:\+?886[\s-]?|0)(?:9\d{2}[\s-]?\d{3}[\s-]?\d{3}
 // `email=a%40b.co&password=x` — a whole string of url-encoded fields
 const FORM_RE = /^[\w.%\[\]-]+=[^&\s]*(?:&[\w.%\[\]-]+=[^&\s]*)*$/;
 
+// Distances to the delivery address: a fixed value, so no two vendors can be used to trilaterate it.
+export const PLACEHOLDER_DISTANCE = 1000;
+const isDistanceKey = (k) => k.includes("distance");
+// Fake address ids start here; --check treats ids below it as real.
+export const FAKE_ID_BASE = 990000000;
+const isIdKey = (k) => k === "id" || k.endsWith("id");
+// Objects carrying any of these are a person (the /customers profile); their timestamps are coarsened.
+const isPersonShaped = (obj) =>
+  obj !== null && typeof obj === "object" && !Array.isArray(obj) &&
+  Object.keys(obj).some((k) => { const n = norm(k); return NAME_KEYS.has(n) || EMAIL_KEYS.has(n) || PHONE_KEYS.has(n); });
+const TIMESTAMP_KEYS = new Set(["createdat", "updatedat", "registeredat", "signupdate", "lastloginat"]);
+const COARSE_DATE_RE = /^(\d{4})-01-01(T00:00:00(\.000)?(Z|[+-]00:?00)?)?$/;
+function coarsenDate(value) {
+  const m = typeof value === "string" ? value.match(/^(\d{4})-\d{2}-\d{2}/) : null;
+  return m ? `${m[1]}-01-01T00:00:00Z` : "[REDACTED:date]";
+}
+
 const isPlaceholder = (v) => typeof v === "string" && /^\[REDACTED(:[a-z]+)?\]$/.test(v);
 
 export function createMasker() {
   const changes = [];
   // `original` is kept so --check --against can look for it in a fixture; it is never printed.
   const record = (path, category, original) => changes.push({ path, category, original });
+
+  // Same real id → same fake id within one run, so references between requests still line up.
+  const fakeIds = new Map();
+  function fakeId(value, path) {
+    if (value === null || value === undefined || value === "" || isPlaceholder(value)) return value;
+    if (typeof value !== "number" && typeof value !== "string") return value;
+    // 0 means "not set" and identifies nothing.
+    if (Number(value) === 0) return value;
+    if (typeof value === "number" ? value >= FAKE_ID_BASE : Number(value) >= FAKE_ID_BASE) return value;
+    const key = String(value);
+    if (!fakeIds.has(key)) fakeIds.set(key, FAKE_ID_BASE + fakeIds.size + 1);
+    record(path, "id", value);
+    const fake = fakeIds.get(key);
+    return typeof value === "number" ? fake : String(fake);
+  }
+
+  function distance(value, path) {
+    if (typeof value === "number" || (typeof value === "string" && value.trim() !== "" && !isNaN(Number(value)))) {
+      if (Number(value) === PLACEHOLDER_DISTANCE) return value;
+      record(path, "distance", value);
+      return typeof value === "number" ? PLACEHOLDER_DISTANCE : String(PLACEHOLDER_DISTANCE);
+    }
+    return value;
+  }
+
+  function timestamp(value, path) {
+    if (typeof value !== "string" || value === "" || COARSE_DATE_RE.test(value) || isPlaceholder(value)) return value;
+    record(path, "date", value);
+    return coarsenDate(value);
+  }
 
   function redactValue(value, category, path) {
     if (value === null || value === undefined || value === "") return value;
@@ -147,6 +200,7 @@ export function createMasker() {
         const p = `${path}.${k}`;
         if (isLatKey(nk)) out[k] = coordinate(v, PLACEHOLDER_LAT, p);
         else if (isLngKey(nk)) out[k] = coordinate(v, PLACEHOLDER_LNG, p);
+        else if (isIdKey(nk) && (typeof v === "number" || typeof v === "string")) out[k] = fakeId(v, p);
         else out[k] = maskAddress(v, p);
       }
       return out;
@@ -269,6 +323,10 @@ export function createMasker() {
     if (ID_KEYS.has(k)) return redactValue(value, "id", path);
     if (isLatKey(k)) return coordinate(value, PLACEHOLDER_LAT, path);
     if (isLngKey(k)) return coordinate(value, PLACEHOLDER_LNG, path);
+    if (isDistanceKey(k)) return distance(value, path);
+    if (isAddressKey(k) && isIdKey(k) && (typeof value === "number" || typeof value === "string")) {
+      return fakeId(value, path);
+    }
     if (isAddressKey(k)) return maskAddress(value, path);
     if (PERSON_CONTEXT.has(parent) && PERSON_CONTEXT_KEYS.has(k)) return redactValue(value, "name", path);
     if (ADDRESS_KEYS.has(k) && (typeof value !== "object" || value === null)) {
@@ -326,9 +384,11 @@ export function createMasker() {
         node = { ...node, text: "[REDACTED:body]" };
       }
       if (isAddressShaped(node)) return maskAddress(node, path);
+      const person = isPersonShaped(node);
       const out = {};
       for (const [k, v] of Object.entries(node)) {
-        out[k] = maskKeyValue(k, v, ancestors, path ? `${path}.${k}` : k);
+        const p = path ? `${path}.${k}` : k;
+        out[k] = person && TIMESTAMP_KEYS.has(norm(k)) ? timestamp(v, p) : maskKeyValue(k, v, ancestors, p);
       }
       return out;
     }
@@ -428,9 +488,23 @@ export function detectLeaks(data) {
           !KEEP_BODY_RE.test(node.mimeType) && node.text !== "" && !/^\[REDACTED/.test(node.text)) {
         add(`${path}.text`, `${node.mimeType} body`);
       }
+      for (const [k, v] of Object.entries(node)) {
+        const nk = norm(k);
+        const p = path ? `${path}.${k}` : k;
+        if (isDistanceKey(nk) && (typeof v === "number" || typeof v === "string") && v !== "" &&
+            !isNaN(Number(v)) && Number(v) !== PLACEHOLDER_DISTANCE) add(p, "distance");
+        const inAddress = isAddressShaped(node);
+        if (((inAddress && isIdKey(nk)) || (isAddressKey(nk) && isIdKey(nk))) &&
+            (typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v))) && Number(v) !== 0 && Number(v) < FAKE_ID_BASE) {
+          add(p, "address id");
+        }
+        if (isPersonShaped(node) && TIMESTAMP_KEYS.has(nk) && typeof v === "string" && v !== "" &&
+            !COARSE_DATE_RE.test(v) && !/^\[REDACTED/.test(v)) add(p, "account timestamp");
+      }
       // An address object with any readable text left in it, whatever it is nested under.
       if (isAddressShaped(node) &&
-          Object.values(node).some((v) => typeof v === "string" && v !== "" && !/^\[REDACTED/.test(v))) {
+          Object.values(node).some((v) => typeof v === "string" && v !== "" && !/^\[REDACTED/.test(v) &&
+            !(/^\d+$/.test(v) && Number(v) >= FAKE_ID_BASE))) {
         add(path, "address object");
       }
       for (const [k, v] of Object.entries(node)) walk(v, path ? `${path}.${k}` : k);
