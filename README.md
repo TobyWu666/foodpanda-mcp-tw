@@ -264,7 +264,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 
 > **LINE Pay 尚未驗證：** 目前還不知道已綁定的 LINE Pay 結帳時是直接扣款，還是會要求跳轉到 LINE 確認。
 > 這要等第一次真實下單才能確認（只會由帳號擁有者手動進行）。
-> 如果結帳回應要求跳轉或額外付款步驟，server 會回報「訂單狀態不明，請先到 foodpanda app 或網站確認」，
+> 結帳回應只要不是明確成功（包括要求跳轉或額外付款步驟），server 都會回報「訂單狀態不明，請先到 foodpanda app 或網站確認」，
 > **不會**重試，也**不會**改用現金。
 
 ## 下單安全：兩步下單
@@ -286,7 +286,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 只能用一次；送單**之前**就先作廢，所以就算送單失敗也不能用同一組碼重試，要重新 `prepare_order`。
 - 購物車、價格、付款方式、地址任何一項改變，確認碼就失效；再呼叫一次 `prepare_order` 也會讓前一組碼失效。
 - server 重新啟動後，所有確認碼都失效。
-- 結帳**絕不重試**。結果不明時（例如連線中斷、LINE Pay 要求跳轉），server 會回報「狀態不明，請先到 foodpanda app 確認」，不要再呼叫 `place_order`。
+- 結帳**絕不重試**。回應只要不是明確成功（例如連線中斷、LINE Pay 要求跳轉），server 都會回報「狀態不明，請先到 foodpanda app 確認」，不要再呼叫 `place_order`。
 
 tool 說明裡已明確寫：AI 必須先把 `prepare_order` 的內容完整給你看，取得你明確同意後，才能呼叫 `place_order`。
 
@@ -358,7 +358,7 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 
 - 被擋過的瀏覽器設定檔會一直被擋，程式會自動清掉設定檔重試（最多 3 次）。
 - 連續太多請求也會被擋：請求之間至少間隔 `FOODPANDA_MIN_INTERVAL_MS`（預設 2 秒），
-  被擋時退避 45 秒、再 90 秒，然後重置設定檔重試。
+  被擋時退避 45 秒、再 90 秒，然後重置設定檔重試。這些重試只用在瀏覽與購物車；**結帳（`place_order`）絕不重試**。
 - token 救不了被擋的瀏覽器；如果一直被擋（例如雲端機房 IP），用 `FOODPANDA_PROXY` 換一個出口。
 
 ## 已知限制
@@ -371,13 +371,16 @@ FOODPANDA_GQL_PRODUCT_HASH=...
    台灣站的實際登入流程還沒跑過，訪客 token、JWT 內容等細節尚待確認。
 4. **購物車驗價與結帳尚未在台灣站實測。** 送出的格式照抓包組成，但 `cart/checkout` 從沒在台灣站真的送過（開發時刻意不下單）。
    第一次真實下單只會由帳號擁有者手動進行。
-5. **已綁定 LINE Pay 是否直接扣款、不跳轉，目前未知。** 若結帳要求跳轉，結果會是「狀態不明，請到 app 確認」，
+5. **已綁定 LINE Pay 是否直接扣款、不跳轉，目前未知。** 結帳回應只要不是明確成功（包括要求跳轉），結果都會是「狀態不明，請到 app 確認」，
    **不會**改用現金，也不會重試。
 6. **結帳絕不重試。** 任何錯誤或不明結果都要先到 foodpanda app 確認訂單，再決定要不要重新 `prepare_order`。
 7. **付款只支援已綁定的 LINE Pay 與現金。** 未綁定的 LINE Pay、信用卡等其他方式都會被明確拒絕。
 8. **外送地址必須先存在帳號裡。** 有多個已存地址時要在 `prepare_order` 指定 `address_id`。
-9. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
-10. **只在台灣驗證。** `hk`、`ph` preset 可以載入，但瀏覽與購物車照台灣網站的格式寫，不保證可用。
+9. **實際扣款金額可能和 `prepare_order` 顯示的不同。** 外送費與總金額是用已存地址的座標計算的，
+   沒有帶入完整的已存地址資料，foodpanda 結帳時算出的金額可能有差。
+   **建議第一筆真實訂單用小額、現金付款**，並比對 `prepare_order` 的總金額和 foodpanda app 上的實際金額。
+10. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
+11. **只在台灣驗證。** `hk`、`ph` preset 可以載入，但瀏覽與購物車照台灣網站的格式寫，不保證可用。
 
 ## 開發
 
