@@ -3,6 +3,7 @@ import * as z from "zod/v4";
 import { FoodpandaClient } from "./foodpanda-client.js";
 import { refreshTokenViaBrowser, persistToken } from "./token-manager.js";
 import { getRegionConfig } from "./config.js";
+import { PLACE_ORDER_DESCRIPTION_NOTE, PREPARE_ORDER_DESCRIPTION_NOTE } from "./order-guard.js";
 
 export function createServer(client: FoodpandaClient): McpServer {
   const region = getRegionConfig();
@@ -354,9 +355,85 @@ export function createServer(client: FoodpandaClient): McpServer {
     }
   );
 
-  // preview_order and place_order are not registered: the upstream one-step
-  // checkout could submit a real order without a confirmation code. The
-  // two-step prepare_order / place_order replaces them in stage 4.
+  const text = (value: unknown) => ({
+    content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
+  });
+  const failure = (prefix: string, error: unknown) => ({
+    content: [{ type: "text" as const, text: `${prefix}: ${(error as Error).message}` }],
+    isError: true,
+  });
+
+  // --- list_payment_methods ---
+  server.registerTool(
+    "list_payment_methods",
+    {
+      title: "List Payment Methods",
+      description:
+        "List the payment methods this server can use for the current cart: 'linepay' (a LINE Pay account already bound to foodpanda, charged directly) and 'cash' (cash on delivery). Other methods foodpanda offers (credit card and so on) are listed as not supported and can never be used here. Needs a non-empty cart. Nothing is ordered.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        return text(await client.listPaymentMethods());
+      } catch (error) {
+        return failure("Error listing payment methods", error);
+      }
+    }
+  );
+
+  // --- prepare_order ---
+  server.registerTool(
+    "prepare_order",
+    {
+      title: "Prepare Order (step 1 of 2)",
+      description:
+        "Step 1 of 2. Prices the current cart for one saved delivery address with the chosen payment method, and locks it. Nothing is ordered. " +
+        PREPARE_ORDER_DESCRIPTION_NOTE +
+        " If the account has several saved addresses, ask the user which one and pass its address_id (the error lists them). Calling this again, or changing the cart, voids the previous code.",
+      inputSchema: z.object({
+        payment_method: z
+          .string()
+          .describe("'linepay' (bound LINE Pay account) or 'cash' (cash on delivery). Ask the user; no other method is accepted."),
+        address_id: z.number().int().optional().describe("Saved address id; required when the account has more than one"),
+        delivery_instructions: z
+          .string()
+          .max(300)
+          .optional()
+          .describe("Note for the rider, e.g. 'Leave at the door'"),
+      }),
+    },
+    async ({ payment_method, address_id, delivery_instructions }) => {
+      try {
+        const summary = await client.prepareOrder({ payment_method, address_id, delivery_instructions });
+        return text({
+          ...summary,
+          next_step:
+            "Show this whole summary to the user. Call place_order with confirmation_code only if they explicitly agree.",
+        });
+      } catch (error) {
+        return failure("Error preparing order", error);
+      }
+    }
+  );
+
+  // --- place_order ---
+  server.registerTool(
+    "place_order",
+    {
+      title: "Place Order (step 2 of 2)",
+      description: "Step 2 of 2. " + PLACE_ORDER_DESCRIPTION_NOTE,
+      inputSchema: z.object({
+        confirmation_code: z.string().describe("The confirmation code returned by prepare_order"),
+      }),
+    },
+    async ({ confirmation_code }) => {
+      try {
+        return text(await client.placeOrder(confirmation_code));
+      } catch (error) {
+        return failure("Order not confirmed", error);
+      }
+    }
+  );
 
   // --- refresh_token ---
   server.registerTool(

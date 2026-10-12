@@ -456,11 +456,11 @@
        "deliveryProvider": "PLATFORM",
        "incentives": [
         {
-         "id": "gis:0e0ebbbd-5f6a-4fb7-82ab-612cd5e6e1d4",
+         "id": "gis:00000000-0000-4000-8000-000000000001",
          "__typename": "IncentiveData"
         },
         {
-         "id": "gis:e370cd3e-a22a-4117-b9df-9dc6df714c3c",
+         "id": "gis:00000000-0000-4000-8000-000000000002",
          "__typename": "IncentiveData"
         },
         {

@@ -186,32 +186,6 @@ export interface DeliveryAddress {
   entrance_longitude: number | null;
 }
 
-export interface PaymentMethodInfo {
-  name: string; // e.g. "payment_on_delivery", "generic_creditcard"
-  display_name: string; // e.g. "Cash on Delivery", "Mastercard ending 0004"
-  instrument_id: string | null; // publicId for saved instruments
-  /** For saved credit cards: card details needed for checkout payload */
-  card_details?: {
-    scheme: string;
-    last_4_digits: string;
-    bin: string;
-    owner: string;
-    valid_to_month: number;
-    valid_to_year: number;
-  };
-}
-
-export interface OrderPreview {
-  cart: Cart;
-  delivery_address: {
-    id: number;
-    label: string | null;
-    formatted_address: string;
-    delivery_instructions: string;
-  };
-  payment_methods: PaymentMethodInfo[];
-}
-
 export interface AddToCartInput {
   item_id: string; // product code (e.g. "ct-36-pd-1673")
   quantity: number;
@@ -266,7 +240,7 @@ export interface CartVendorPayload {
   vertical: string;
 }
 
-/** cart/calculate body, field for field as the tw web app sends it (no address or payment yet). */
+/** cart/calculate body, field for field as the tw web app sends it (no saved-address block). */
 export interface CartCalculateRequest {
   products: CartProductPayload[];
   vendor: CartVendorPayload;
@@ -289,7 +263,8 @@ export interface CartCalculateRequest {
   joker_offer_id: string;
   payment: {
     loyalty: { balance: null; points: number; selected_promotion_id: string };
-    methods: never[];
+    /** Empty until a payment method is selected; then exactly one entry. */
+    methods: Array<{ method: string; amount: number; publicId: string; displayable_name: string }>;
     allowance_amount: number;
   };
   group_order: null;

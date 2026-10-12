@@ -12,9 +12,13 @@ import type {
   ToppingGroup,
   CustomerProfile,
   DeliveryAddress,
-  PaymentMethodInfo,
-  OrderPreview,
 } from "./types.js";
+import { OrderConfirmationError, OrderGuard, type OrderSnapshot } from "./order-guard.js";
+import {
+  type PaymentMethodChoice,
+  UnsupportedPaymentMethodError,
+  parsePaymentMethodChoice,
+} from "./payment-method.js";
 
 import { getRegionConfig, requireHash } from "./config.js";
 import { browserTransport } from "./browser-transport.js";
@@ -36,6 +40,15 @@ import {
   searchOperation,
   selectChoices,
   checkQuantity,
+  type PaymentOption,
+  type PurchaseIntent,
+  CheckoutStatusUnknownError,
+  buildCheckoutRequest,
+  checkCalculatedPayment,
+  parseCheckoutResponse,
+  parsePurchaseIntent,
+  purchaseIntentRequest,
+  withPaymentMethod,
 } from "./tw-api.js";
 
 /** Checkout must name the right entity; never fall back to another country's id. */
@@ -61,13 +74,66 @@ interface CachedVendorMenu extends RestaurantPage {
 /** Menus change during the day (breakfast/regular menus); refetch after this long. */
 const MENU_CACHE_MS = 10 * 60 * 1000;
 
-/**
- * The upstream one-step checkout is switched off: with the tw cart working it
- * could send a real order with no confirmation code. Stage 4 replaces it with
- * the two-step prepare_order / place_order.
- */
-const LEGACY_CHECKOUT_DISABLED =
-  "Ordering is disabled until the two-step prepare_order / place_order flow is in place.";
+/** Raw HTTP, injectable so tests can run the whole flow without the network. */
+export type HttpFunction = (
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string }
+) => Promise<{ status: number; ok: boolean; text: string }>;
+
+export interface FoodpandaClientOptions {
+  /** Replaces the network (fetch or browser transport) and the request throttle. */
+  http?: HttpFunction;
+  guard?: OrderGuard;
+}
+
+/** What prepareOrder locked; place_order rebuilds the order from it. */
+interface PreparedOrder {
+  option: PaymentOption;
+  intentId: string;
+  addressId: number;
+  deliveryInstructions: string;
+}
+
+export interface PreparedOrderSummary {
+  confirmation_code: string;
+  expires_at: string;
+  restaurant: { id: string; name: string };
+  items: Array<{
+    name: string;
+    quantity: number;
+    options: string[];
+    special_instructions: string;
+    total_price: number;
+  }>;
+  subtotal: number;
+  delivery_fee: number;
+  service_fee: number;
+  total: number;
+  currency: string;
+  payment_method: { payment_method: PaymentMethodChoice; label: string };
+  delivery_address: { id: number; label: string | null; address: string };
+  delivery_instructions: string;
+}
+
+/** Never matches a real order; used only to let the guard report a missing or stale code. */
+const EMPTY_SNAPSHOT: OrderSnapshot = {
+  customer_id: "",
+  restaurant_id: "",
+  items: [],
+  subtotal: 0,
+  delivery_fee: 0,
+  service_fee: 0,
+  total: 0,
+  payment_method: "cash",
+  address: { id: 0, latitude: 0, longitude: 0, text: "" },
+  delivery_instructions: "",
+};
+
+function describeAddresses(addresses: DeliveryAddress[]): string {
+  return addresses
+    .map((a) => `- address_id ${a.id}: ${a.label ? `${a.label}, ` : ""}${a.formatted_customer_address ?? ""}`)
+    .join("\n");
+}
 
 export class FoodpandaClient {
   private sessionToken: string | null;
@@ -92,7 +158,19 @@ export class FoodpandaClient {
   // Menu cache keyed by vendor code
   private menuCache: Map<string, CachedVendorMenu> = new Map();
 
-  constructor(sessionToken: string | null, latitude: number, longitude: number) {
+  // Two-step order state
+  private readonly guard: OrderGuard;
+  private prepared: PreparedOrder | null = null;
+  private readonly http: HttpFunction | undefined;
+
+  constructor(
+    sessionToken: string | null,
+    latitude: number,
+    longitude: number,
+    options: FoodpandaClientOptions = {}
+  ) {
+    this.http = options.http;
+    this.guard = options.guard ?? new OrderGuard();
     this.sessionToken = sessionToken;
     this.latitude = latitude;
     this.longitude = longitude;
@@ -132,6 +210,10 @@ export class FoodpandaClient {
    * Re-extracts the customer code from the new JWT.
    */
   public updateSessionToken(token: string): void {
+    // A different login may be a different account: no prepared order survives it.
+    this.guard.invalidate();
+    this.prepared = null;
+    this.cachedCustomerProfile = null;
     this.sessionToken = token;
     this.customerCode = this.extractCustomerCode(token);
   }
@@ -182,6 +264,7 @@ export class FoodpandaClient {
     url: string,
     init: { method?: string; headers?: Record<string, string>; body?: string } = {}
   ): Promise<{ status: number; ok: boolean; text: string }> {
+    if (this.http) return this.http(url, init);
     await this.throttle();
     const cfg = getRegionConfig();
     if (!cfg.browserTransport) {
@@ -499,6 +582,9 @@ export class FoodpandaClient {
     vendorCode: string,
     items: AddToCartInput[]
   ): Promise<Cart> {
+    // Any change to the cart voids a prepared order, even if this one fails part way.
+    this.guard.invalidate();
+    this.prepared = null;
     const menu = await this.loadRestaurant(vendorCode);
 
     // Build every line first, so a bad item leaves the cart untouched.
@@ -591,6 +677,8 @@ export class FoodpandaClient {
   // ----------------------------------------------------------------
 
   async removeFromCart(cartItemId: string): Promise<Cart> {
+    this.guard.invalidate();
+    this.prepared = null;
     const idx = this.cartItemIds.indexOf(cartItemId);
     if (idx < 0) {
       throw new Error(
@@ -621,35 +709,15 @@ export class FoodpandaClient {
   }
 
   // ----------------------------------------------------------------
-  // 7. Preview Order
+  // 7. Payment methods and addresses
   // ----------------------------------------------------------------
 
-  /** Cached checkout state from previewOrder, used by placeOrder */
-  private checkoutState: {
-    customer: CustomerProfile;
-    address: DeliveryAddress;
-    purchaseIntentId: string;
-    paymentMethods: PaymentMethodInfo[];
-  } | null = null;
-
-  /** Cached customer profile (rarely changes) */
+  /** Cached customer profile; dropped when the token changes. */
   private cachedCustomerProfile: CustomerProfile | null = null;
 
   private async getCustomerProfile(): Promise<CustomerProfile> {
     if (this.cachedCustomerProfile) return this.cachedCustomerProfile;
-
-    const result = await this.restRequest<{
-      data: {
-        id: string;
-        code: string;
-        first_name: string;
-        last_name: string;
-        email: string;
-        mobile_number: string;
-        mobile_country_code: string;
-      };
-    }>("/api/v5/customers");
-
+    const result = await this.restRequest<{ data: CustomerProfile }>("/api/v5/customers");
     this.cachedCustomerProfile = result.data;
     return result.data;
   }
@@ -658,165 +726,285 @@ export class FoodpandaClient {
     const result = await this.restRequest<{
       data: { items: DeliveryAddress[] };
     }>("/api/v5/customers/addresses");
+    return result.data.items ?? [];
+  }
 
-    return result.data.items;
+  /** The address the user picked. With several saved addresses, never guess: ask. */
+  private chooseAddress(addresses: DeliveryAddress[], addressId?: number): DeliveryAddress {
+    if (addresses.length === 0) {
+      throw new Error("No saved delivery addresses. Add one in the foodpanda app first.");
+    }
+    if (addressId !== undefined) {
+      const hit = addresses.find((a) => Number(a.id) === Number(addressId));
+      if (!hit) throw new Error(`Saved address ${addressId} not found.\n${describeAddresses(addresses)}`);
+      return hit;
+    }
+    if (addresses.length === 1) return addresses[0];
+    throw new Error(
+      `There are ${addresses.length} saved addresses. Ask the user which one to deliver to and pass its address_id.\n` +
+        describeAddresses(addresses)
+    );
+  }
+
+  private async getPurchaseIntent(): Promise<PurchaseIntent> {
+    const cfg = getRegionConfig();
+    const resp = await this.restRequest<unknown>(
+      `/api/v5/purchase/intent?include=cashback&locale=${cfg.locale}`,
+      {
+        method: "POST",
+        body: JSON.stringify(
+          purchaseIntentRequest(this.cartVendor!.code, this.cartSubtotal, this.cartTotal, cfg.currency)
+        ),
+      }
+    );
+    return parsePurchaseIntent(resp);
+  }
+
+  /** LINE Pay (bound) and cash, if the account can use them for the current cart. */
+  async listPaymentMethods(): Promise<{
+    available: Array<{ payment_method: PaymentMethodChoice; label: string }>;
+    unavailable: Array<{ payment_method: PaymentMethodChoice; reason: string }>;
+    not_supported_by_this_server: string[];
+  }> {
+    this.requireCart();
+    const intent = await this.getPurchaseIntent();
+    return {
+      available: intent.options.map((o) => ({ payment_method: o.choice, label: o.label })),
+      unavailable: intent.unavailable.map((u) => ({ payment_method: u.choice, reason: u.reason })),
+      not_supported_by_this_server: intent.notSupported,
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // 8. Two-step order: prepare_order, then place_order
+  // ----------------------------------------------------------------
+
+  private requireCart(): void {
+    if (this.cartProducts.length === 0 || !this.cartVendor) {
+      throw new Error("Cart is empty. Add items first.");
+    }
+  }
+
+  /** Exactly what place_order would submit, for the confirmation code. */
+  private orderSnapshot(
+    customer: CustomerProfile,
+    address: DeliveryAddress,
+    paymentMethod: PaymentMethodChoice,
+    deliveryInstructions: string
+  ): OrderSnapshot {
+    return {
+      customer_id: String(customer.id),
+      restaurant_id: this.cartVendor!.code,
+      items: this.cartProducts.map((p, i) => ({
+        product_id: p.id,
+        variation_id: p.variation_id,
+        quantity: p.quantity,
+        topping_ids: p.toppings.map((t) => t.id),
+        special_instructions: p.special_instructions,
+        total_price: this.cartItems[i]?.total_price ?? p.price * p.quantity,
+      })),
+      subtotal: this.cartSubtotal,
+      delivery_fee: this.cartDeliveryFee,
+      service_fee: this.cartServiceFee,
+      total: this.cartTotal,
+      payment_method: paymentMethod,
+      address: {
+        id: Number(address.id),
+        latitude: address.latitude,
+        longitude: address.longitude,
+        text: address.formatted_customer_address ?? "",
+      },
+      delivery_instructions: deliveryInstructions,
+    };
   }
 
   /**
-   * Pick the best delivery address: closest to configured lat/lng.
+   * Price the cart for one saved address with one payment method selected, lock it,
+   * and issue a one-time confirmation code. Nothing is ordered.
    */
-  private pickDeliveryAddress(addresses: DeliveryAddress[]): DeliveryAddress {
-    if (addresses.length === 0) {
+  async prepareOrder(input: {
+    payment_method: string;
+    address_id?: number;
+    delivery_instructions?: string;
+  }): Promise<PreparedOrderSummary> {
+    // Any earlier code is void from here on, whatever happens below.
+    this.guard.invalidate();
+    this.prepared = null;
+
+    const choice = parsePaymentMethodChoice(input.payment_method);
+    this.requireCart();
+    const instructions = input.delivery_instructions?.trim() ?? "";
+
+    const details = await this.getRestaurantDetails(this.cartVendor!.code);
+    if (!details.is_open || !details.is_delivery_available) {
+      throw new Error(`${details.name} is closed or not taking delivery orders right now.`);
+    }
+
+    const customer = await this.getCustomerProfile();
+    const address = this.chooseAddress(await this.getDeliveryAddresses(), input.address_id);
+
+    // Price at the chosen address, then select the payment method the way the web app does.
+    await this.calculateCart({ address });
+    const intent = await this.getPurchaseIntent();
+    const option = intent.options.find((o) => o.choice === choice);
+    if (!option) {
+      throw new UnsupportedPaymentMethodError(choice, intent.options.map((o) => o.choice));
+    }
+    const amount = this.cartTotal;
+    await this.calculateCart({ address, payment: { option, amount } });
+    if (this.cartTotal !== amount) {
       throw new Error(
-        "No saved delivery addresses found. Please add an address in the foodpanda app first."
+        `The total changed from ${amount} to ${this.cartTotal} when the payment method was selected. Call prepare_order again.`
       );
     }
-    if (addresses.length === 1) return addresses[0];
-
-    let best = addresses[0];
-    let bestDist = Infinity;
-    for (const addr of addresses) {
-      const dlat = addr.latitude - this.latitude;
-      const dlng = addr.longitude - this.longitude;
-      const dist = dlat * dlat + dlng * dlng;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = addr;
-      }
+    const unavailable = this.cartItems.filter((i) => i.is_available === false);
+    if (unavailable.length > 0) {
+      throw new Error(
+        `Not available right now: ${unavailable.map((i) => i.name).join(", ")}. Remove them from the cart first.`
+      );
     }
-    return best;
+
+    const snapshot = this.orderSnapshot(customer, address, choice, instructions);
+    this.prepared = { option, intentId: intent.intentId, addressId: Number(address.id), deliveryInstructions: instructions };
+    const issued = this.guard.issue(snapshot);
+
+    return {
+      confirmation_code: issued.code,
+      expires_at: issued.expires_at,
+      restaurant: { id: this.cartVendor!.code, name: this.cartVendorName },
+      items: this.cartItems.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        options: i.toppings.map((t) => (t.price ? `${t.name} (+${t.price})` : t.name)),
+        special_instructions: i.special_instructions,
+        total_price: i.total_price,
+      })),
+      subtotal: this.cartSubtotal,
+      delivery_fee: this.cartDeliveryFee,
+      service_fee: this.cartServiceFee,
+      total: this.cartTotal,
+      currency: getRegionConfig().currency,
+      payment_method: { payment_method: choice, label: option.label },
+      delivery_address: {
+        id: Number(address.id),
+        label: address.label ?? null,
+        address: address.formatted_customer_address ?? "",
+      },
+      delivery_instructions: instructions,
+    };
   }
 
-  private async getPurchaseIntent(
-    vendorCode: string,
-    subtotal: number,
-    total: number
-  ): Promise<{
-    intentId: string;
-    paymentMethods: PaymentMethodInfo[];
-  }> {
-    interface IntentResponse {
-      data: {
-        purchaseIntent: { id: string };
-        paymentMethodDetails: {
-          paymentMethods: Array<{
-            name: string;
-            hidden: boolean;
-            isOnlinePaymentMethod: boolean;
-            preferred: boolean;
-            paymentInstruments: Array<{
-              publicId: string;
-              preferred: boolean;
-              publicFields?: {
-                displayValue?: string;
-                bin?: string;
-                owner?: string;
-                validToMonth?: number;
-                validToYear?: number;
-                scheme?: string;
-              };
-            }> | null;
-          }>;
-        };
+  /**
+   * Submit the order prepared by prepareOrder. Re-checks everything against
+   * foodpanda first; the code is spent before checkout is sent, and checkout is
+   * sent exactly once (no retry of any kind).
+   */
+  async placeOrder(confirmationCode: string): Promise<OrderResult> {
+    const prepared = this.prepared;
+    try {
+      if (!prepared || !this.cartVendor || this.cartProducts.length === 0) {
+        // Let the guard word it: missing, used, expired or unknown.
+        this.guard.consume(confirmationCode, EMPTY_SNAPSHOT);
+        throw new OrderConfirmationError("unknown", "Unknown confirmation code. Call prepare_order again.");
+      }
+
+      // Re-validate: same account, the same saved address as it is now, current prices.
+      const customer = await this.getCustomerProfile();
+      const address = (await this.getDeliveryAddresses()).find((a) => Number(a.id) === prepared.addressId);
+      if (!address) {
+        throw new OrderConfirmationError(
+          "changed",
+          "The delivery address was removed since prepare_order. Call prepare_order again.",
+          ["address"]
+        );
+      }
+      await this.calculateCart({ address, payment: { option: prepared.option, amount: this.cartTotal } });
+      const current = this.orderSnapshot(customer, address, prepared.option.choice, prepared.deliveryInstructions);
+
+      // Spend the code. From here on, any failure needs a new prepare_order.
+      this.guard.consume(confirmationCode, current);
+      this.prepared = null;
+
+      const cfg = getRegionConfig();
+      const cached = this.menuCache.get(this.cartVendor.code);
+      const body = buildCheckoutRequest({
+        products: this.cartProducts,
+        menuItem: (id) => cached?.productsById.get(id),
+        vendor: this.cartVendor,
+        customer: { id: String(customer.id), email: customer.email },
+        address,
+        deliveryInstructions: prepared.deliveryInstructions,
+        total: current.total,
+        intentId: prepared.intentId,
+        option: prepared.option,
+        webHost: cfg.webHost,
+        currency: cfg.currency,
+      });
+
+      let resp: unknown;
+      try {
+        // restRequestOnce, never restRequest: a checkout must not be retried.
+        resp = await this.restRequestOnce<unknown>("/api/v5/cart/checkout", {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: {
+            "dps-session-id": this.dpsSessionId(),
+            "x-caller-platform": "mfe",
+            "x-global-entity-id": requireGlobalEntityId(),
+          },
+        });
+      } catch (err) {
+        throw new CheckoutStatusUnknownError(`sending the order failed (${redactForLog((err as Error).message)}).`);
+      }
+
+      console.error("[placeOrder] checkout response:", redactForLog(resp));
+      const outcome = parseCheckoutResponse(resp);
+      const total = current.total;
+      this.clearCart();
+      return {
+        order_id: outcome.orderCode,
+        status: outcome.status,
+        estimated_delivery_time: outcome.estimatedDelivery,
+        total,
       };
+    } finally {
+      // Whatever happened, this code and this preparation are finished.
+      this.guard.invalidate();
+      this.prepared = null;
     }
-
-    const result = await this.restRequest<IntentResponse>(
-      `/api/v5/purchase/intent?include=cashback&locale=${getRegionConfig().locale}`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          subtotal,
-          currency: getRegionConfig().currency,
-          vendorCode,
-          amount: total,
-          emoneyAmountToUse: 0,
-          expeditionType: "delivery",
-          paymentLimits: [
-            { limitCode: "foodafterdiscount", limitAmount: subtotal },
-            { limitCode: "orderamountwithoutpaymentfee", limitAmount: total },
-          ],
-        }),
-      }
-    );
-
-    const intentId = result.data.purchaseIntent.id;
-    const methods: PaymentMethodInfo[] = [];
-
-    for (const pm of result.data.paymentMethodDetails.paymentMethods) {
-      if (pm.hidden) continue;
-
-      if (pm.name === "payment_on_delivery") {
-        const instrument = pm.paymentInstruments?.[0];
-        methods.push({
-          name: "payment_on_delivery",
-          display_name: "Cash on Delivery",
-          instrument_id: instrument?.publicId ?? null,
-        });
-      } else if (pm.name === "generic_creditcard") {
-        // List each saved card as a separate option
-        if (pm.paymentInstruments && pm.paymentInstruments.length > 0) {
-          for (const inst of pm.paymentInstruments) {
-            const pf = inst.publicFields;
-            const label = pf?.scheme && pf?.displayValue
-              ? `${pf.scheme} ending ${pf.displayValue}`
-              : "Saved card";
-            methods.push({
-              name: "generic_creditcard",
-              display_name: label,
-              instrument_id: inst.publicId,
-              card_details: pf
-                ? {
-                    scheme: pf.scheme ?? "",
-                    last_4_digits: pf.displayValue ?? "",
-                    bin: pf.bin ?? "",
-                    owner: pf.owner ?? "",
-                    valid_to_month: pf.validToMonth ?? 0,
-                    valid_to_year: pf.validToYear ?? 0,
-                  }
-                : undefined,
-            });
-          }
-        }
-      } else if (pm.name === "antfinancial_gcash") {
-        methods.push({
-          name: "antfinancial_gcash",
-          display_name: "GCash (requires app redirect — may not work via MCP)",
-          instrument_id: null,
-        });
-      }
-    }
-
-    return { intentId, paymentMethods: methods };
   }
 
-  async previewOrder(): Promise<OrderPreview> {
-    throw new Error(LEGACY_CHECKOUT_DISABLED);
-  }
-
-  // ----------------------------------------------------------------
-  // 8. Place Order
-  // ----------------------------------------------------------------
-
-  async placeOrder(_paymentMethodName: string, _deliveryInstructions?: string): Promise<OrderResult> {
-    throw new Error(LEGACY_CHECKOUT_DISABLED);
+  private dpsSessionId(): string {
+    const payload = {
+      session_id: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
+      perseus_id: this.perseusClientId,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+    return Buffer.from(JSON.stringify(payload)).toString("base64");
   }
 
   // ----------------------------------------------------------------
   // Cart calculation helper
   // ----------------------------------------------------------------
 
-  private async calculateCart(): Promise<Cart> {
+  /**
+   * Validate and price the cart with foodpanda. Without an address it uses the configured
+   * location; prepare/place pass the chosen saved address and the selected payment method.
+   */
+  private async calculateCart(
+    at: { address?: DeliveryAddress; payment?: { option: PaymentOption; amount: number } } = {}
+  ): Promise<Cart> {
     if (!this.cartVendor || this.cartProducts.length === 0) {
       throw new Error("Cart is empty. Add items first.");
     }
 
-    const requestBody = buildCalculateRequest(
+    let requestBody = buildCalculateRequest(
       this.cartProducts,
       this.cartVendor,
-      this.latitude,
-      this.longitude
+      at.address?.latitude ?? this.latitude,
+      at.address?.longitude ?? this.longitude
     );
+    if (at.payment) requestBody = withPaymentMethod(requestBody, at.payment.option, at.payment.amount);
 
     const result = await this.restRequest<unknown>(
       "/api/v5/cart/calculate?include=expedition",
@@ -826,6 +1014,7 @@ export class FoodpandaClient {
         headers: { "X-Caller-Platform": "mfe" },
       }
     );
+    if (at.payment) checkCalculatedPayment(result, at.payment.option);
 
     const calc = parseCalculate(result, this.cartProducts);
     this.cartSubtotal = calc.subtotal;
@@ -846,6 +1035,8 @@ export class FoodpandaClient {
   }
 
   private clearCart(): void {
+    this.guard.invalidate();
+    this.prepared = null;
     this.cartProducts = [];
     this.cartItemIds = [];
     this.cartVendor = null;
