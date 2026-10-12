@@ -10,11 +10,11 @@ test("tw is the default region, with the values seen in the tw capture", () => {
   assert.equal(cfg.locale, "zh_TW");
   assert.equal(cfg.currency, "TWD");
   assert.equal(cfg.globalEntityId, "FP_TW");
+  assert.equal(cfg.languageId, 6);
 });
 
 test("tw leaves values the capture did not show unset instead of guessing", () => {
   const cfg = loadRegionConfig({ FOODPANDA_COUNTRY: "tw" });
-  assert.equal(cfg.languageId, null);
   assert.equal(cfg.searchHash, "");
   assert.equal(cfg.vendorListHash, "");
 });
@@ -43,6 +43,7 @@ test("country selection is case-insensitive and other presets still load", () =>
   const hk = loadRegionConfig({ FOODPANDA_COUNTRY: "hk" });
   assert.equal(hk.apiBase, "https://hk.fd-api.com");
   assert.equal(hk.globalEntityId, "");
+  assert.equal(loadRegionConfig({ FOODPANDA_COUNTRY: "hk", FOODPANDA_LANGUAGE_ID: "" }).languageId, 1);
   assert.equal(loadRegionConfig({ FOODPANDA_COUNTRY: "ph" }).globalEntityId, "FP_PH");
 });
 

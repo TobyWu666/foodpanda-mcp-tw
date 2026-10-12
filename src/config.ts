@@ -91,6 +91,7 @@ const PRESETS: Record<string, Partial<RegionConfig>> = {
     apiBase: "https://tw.fd-api.com",
     webHost: "https://www.foodpanda.com.tw",
     locale: "zh_TW",
+    languageId: 6,
     currency: "TWD",
     globalEntityId: "FP_TW",
     countryLabel: "foodpanda Taiwan",
