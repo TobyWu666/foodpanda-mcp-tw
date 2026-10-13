@@ -39,6 +39,10 @@ export interface RegionConfig {
   /** Apollo persisted-query hashes. Region builds publish different hashes. */
   searchHash: string;
   vendorListHash: string;
+  /** GetRestaurantDetailsPage: vendor details and menu (tw web build). */
+  restaurantDetailsHash: string;
+  /** RestaurantProductQuery: one product's choice groups (options and add-ons). */
+  productHash: string;
   /**
    * Route API calls through a real browser context (carries PerimeterX cookies).
    * PerimeterX (the "Access to this page has been denied" wall) challenges plain
@@ -95,6 +99,12 @@ const PRESETS: Record<string, Partial<RegionConfig>> = {
     currency: "TWD",
     globalEntityId: "FP_TW",
     countryLabel: "foodpanda Taiwan",
+    // Persisted-query hashes of the tw web build, read off its /graphql requests (findings.md).
+    // A new web build can change them; override with the FOODPANDA_GQL_* env vars.
+    searchHash: "21ed33404faa7c57b9d8110d16c7daf010b29c1a0103c2f2c9d318c83f751177",
+    vendorListHash: "436d223f6c2c0d2ca1fbeec085e811183017e654394f75be55740ce2f9fff278",
+    restaurantDetailsHash: "2f099c32bbbb7df71dfe835ac6023583b968d3d86be315de4cdc7fd659de1b28",
+    productHash: "22f7602de58c2f275e637f368379c9cddca7c80a3e921d1e06e492006cc29610",
   },
   hk: {
     apiBase: "https://hk.fd-api.com",
@@ -166,6 +176,9 @@ export function loadRegionConfig(env: Env = process.env): RegionConfig {
     countryLabel: preset.countryLabel || country.toUpperCase(),
     searchHash: env.FOODPANDA_GQL_SEARCH_HASH || preset.searchHash || "",
     vendorListHash: env.FOODPANDA_GQL_VENDOR_LIST_HASH || preset.vendorListHash || "",
+    restaurantDetailsHash:
+      env.FOODPANDA_GQL_RESTAURANT_DETAILS_HASH || preset.restaurantDetailsHash || "",
+    productHash: env.FOODPANDA_GQL_PRODUCT_HASH || preset.productHash || "",
     browserTransport: envFlag(env, "FOODPANDA_BROWSER_TRANSPORT", true),
     headless: envFlag(env, "FOODPANDA_HEADLESS", true),
     browserChannel:
@@ -186,14 +199,23 @@ export function getRegionConfig(): RegionConfig {
 }
 
 /** Persisted-query hash resolution with an explicit failure mode. */
-export function requireHash(kind: "search" | "vendor_list"): string {
+const HASHES = {
+  search: { key: "searchHash", env: "FOODPANDA_GQL_SEARCH_HASH" },
+  vendor_list: { key: "vendorListHash", env: "FOODPANDA_GQL_VENDOR_LIST_HASH" },
+  restaurant_details: { key: "restaurantDetailsHash", env: "FOODPANDA_GQL_RESTAURANT_DETAILS_HASH" },
+  product: { key: "productHash", env: "FOODPANDA_GQL_PRODUCT_HASH" },
+} as const;
+
+export type HashKind = keyof typeof HASHES;
+
+export function requireHash(kind: HashKind): string {
   const cfg = getRegionConfig();
-  const hash = kind === "search" ? cfg.searchHash : cfg.vendorListHash;
+  const { key, env } = HASHES[kind];
+  const hash = cfg[key];
   if (!hash) {
     throw new Error(
       `No Apollo persisted-query hash configured for ${kind} in ${cfg.countryLabel}. ` +
-        `Harvest it with 'node scripts/discover-hashes.mjs' and set ` +
-        `${kind === "search" ? "FOODPANDA_GQL_SEARCH_HASH" : "FOODPANDA_GQL_VENDOR_LIST_HASH"}.`
+        `Harvest it with 'node scripts/discover-hashes.mjs' and set ${env}.`
     );
   }
   return hash;

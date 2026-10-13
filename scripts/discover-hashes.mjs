@@ -13,7 +13,10 @@
  * app's own /graphql requests.
  *
  * Usage — build first, then:
- *   FOODPANDA_COUNTRY=hk FOODPANDA_HEADLESS=0 node scripts/discover-hashes.mjs
+ *   FOODPANDA_HEADLESS=0 node scripts/discover-hashes.mjs
+ *
+ * The script runs a search itself. While it waits, open a chain's branch list, a restaurant
+ * and one item with options in the browser window, so those queries fire too.
  *
  * Exits non-zero if nothing was captured. Results are also written to
  * $FOODPANDA_STATE_DIR/gql-hashes.json.
@@ -30,17 +33,24 @@ const cfg = getRegionConfig();
 const STATE_DIR = process.env.FOODPANDA_STATE_DIR || join(homedir(), ".foodpanda-mcp");
 const OUT_FILE = join(STATE_DIR, "gql-hashes.json");
 
-/** Variable shapes that identify which tool each persisted query belongs to. */
+/**
+ * Which tool each persisted query belongs to. The tw web app names its operations (in the body,
+ * or only in the x-apollo-operation-name header for RestaurantProductQuery); a marker in the
+ * variables tells the chain listing apart from other GetVendorListPage calls.
+ */
 const SIGNATURES = [
+  { kind: "search", operation: "SearchResults" },
+  { kind: "vendor_list", operation: "GetVendorListPage", marker: "CHAIN_LISTING_PAGE" },
+  { kind: "restaurant_details", operation: "GetRestaurantDetailsPage" },
+  { kind: "product", operation: "RestaurantProductQuery" },
+  // Builds without operation names (upstream PH/HK) are recognised by their variables.
   { kind: "search", marker: "searchResultsParams" },
-  { kind: "vendor_list", marker: "CHAIN_LISTING_PAGE" },
-  { kind: "vendor_list_home", marker: '"context":"HOME"' },
 ];
 
 const found = new Map();
 const seen = new Map();
 
-function record(postData) {
+function record(postData, headerOperation) {
   let body;
   try {
     body = JSON.parse(postData || "{}");
@@ -49,12 +59,14 @@ function record(postData) {
   }
   const hash = body?.extensions?.persistedQuery?.sha256Hash;
   if (!hash) return;
+  const operation = body.operationName || headerOperation || "";
   const variables = JSON.stringify(body.variables ?? {});
-  if (!seen.has(hash)) seen.set(hash, variables.slice(0, 200));
+  if (!seen.has(hash)) seen.set(hash, `${operation} ${variables.slice(0, 160)}`);
   for (const sig of SIGNATURES) {
-    if (variables.includes(sig.marker) && !found.has(sig.kind)) {
-      found.set(sig.kind, hash);
-    }
+    if (found.has(sig.kind)) continue;
+    if (sig.operation && sig.operation !== operation) continue;
+    if (sig.marker && !variables.includes(sig.marker)) continue;
+    found.set(sig.kind, hash);
   }
 }
 
@@ -65,7 +77,7 @@ const context = await transport.getContext();
 const page = context.pages()[0] || (await context.newPage());
 page.on("request", (request) => {
   if (request.method() === "POST" && request.url().includes("/graphql")) {
-    record(request.postData());
+    record(request.postData(), request.headers()["x-apollo-operation-name"]);
   }
 });
 
@@ -90,10 +102,12 @@ try {
   const field = (await page.$('input[type="search"]')) || (await page.$("[role=searchbox]"));
   if (field) {
     await field.click();
-    await field.type("mcdonald", { delay: 90 });
+    await field.type(process.env.FOODPANDA_DISCOVER_QUERY || "麥當勞", { delay: 90 });
     await page.waitForTimeout(2000);
     await page.keyboard.press("Enter");
     await page.waitForTimeout(8000);
+    console.error("Now open a chain's branch list, a restaurant and an item with options (60 s) ...");
+    await page.waitForTimeout(60000);
   } else {
     console.error("(no search field found — search manually on the page while this runs)");
   }
@@ -110,17 +124,16 @@ if (seen.size > 0) {
   for (const [hash, vars] of seen) console.error(`  ${hash}\n    ${vars}`);
 }
 
-const search = found.get("search");
-// Only the exact chain-listing query is a drop-in for list_outlets: the API validates the
-// variables against the persisted document, so a home-page listing hash would fail there.
-const vendorList = found.get("vendor_list");
-if (search) console.log(`FOODPANDA_GQL_SEARCH_HASH=${search}`);
-if (vendorList) console.log(`FOODPANDA_GQL_VENDOR_LIST_HASH=${vendorList}`);
-if (!vendorList && found.get("vendor_list_home")) {
-  console.error(
-    "\n(list_outlets still needs its own hash: open a restaurant CHAIN page in the browser so the\n" +
-      " CHAIN_LISTING_PAGE query fires, then re-run this script)"
-  );
+const ENV_NAMES = {
+  search: "FOODPANDA_GQL_SEARCH_HASH",
+  vendor_list: "FOODPANDA_GQL_VENDOR_LIST_HASH",
+  restaurant_details: "FOODPANDA_GQL_RESTAURANT_DETAILS_HASH",
+  product: "FOODPANDA_GQL_PRODUCT_HASH",
+};
+for (const [kind, env] of Object.entries(ENV_NAMES)) {
+  const hash = found.get(kind);
+  if (hash) console.log(`${env}=${hash}`);
+  else console.error(`(not seen: ${kind} — open the matching page in the browser and re-run)`);
 }
 
 await transport.close();

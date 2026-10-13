@@ -5,10 +5,7 @@
     "outDir": "./build/test"
   },
   "include": [
-    "src/order-guard.ts",
-    "src/payment-method.ts",
-    "src/config.ts",
-    "src/token-check.ts",
+    "src/**/*.ts",
     "test/**/*.ts"
   ]
 }
