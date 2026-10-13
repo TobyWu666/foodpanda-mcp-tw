@@ -9,7 +9,7 @@ import { loadPersistedToken } from "./token-manager.js";
 import { getRegionConfig } from "./config.js";
 import { tokenProblem } from "./token-check.js";
 
-export function createClientFromEnv(options: Pick<FoodpandaClientOptions, "confirmSend"> = {}): FoodpandaClient {
+export function createClientFromEnv(options: Pick<FoodpandaClientOptions, "confirmSend" | "reportOutcome"> = {}): FoodpandaClient {
   // Region (endpoints, locale, currency, GraphQL hashes) — FOODPANDA_COUNTRY=tw by default.
   const cfg = getRegionConfig();
 

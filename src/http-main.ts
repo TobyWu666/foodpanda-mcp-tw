@@ -23,7 +23,13 @@ import {
   tokenProblemForHttp,
 } from "./http-server.js";
 import { macSendConfirmation, type SendConfirmer } from "./send-confirmation.js";
-import { parseTelegramUserId, telegramApi, telegramSendConfirmation } from "./telegram-confirmation.js";
+import {
+  parseTelegramUserId,
+  telegramApi,
+  telegramOutcomeReporter,
+  telegramSendConfirmation,
+} from "./telegram-confirmation.js";
+import type { SendOutcome } from "./foodpanda-client.js";
 
 const token = (process.env.FOODPANDA_HTTP_TOKEN || "").trim();
 const problem = tokenProblemForHttp(token);
@@ -39,6 +45,7 @@ const botToken = (process.env.FOODPANDA_TELEGRAM_BOT_TOKEN || "").trim();
 const userIdText = (process.env.FOODPANDA_TELEGRAM_USER_ID || "").trim();
 let confirmSend: SendConfirmer;
 let placeOrderNote: string;
+let reportOutcome: ((outcome: SendOutcome) => void) | undefined;
 if (botToken || userIdText) {
   const userId = parseTelegramUserId(userIdText);
   if (!/^[0-9]+:[A-Za-z0-9_-]{30,}$/.test(botToken) || userId === null) {
@@ -48,7 +55,9 @@ if (botToken || userIdText) {
     );
     process.exit(1);
   }
-  confirmSend = telegramSendConfirmation({ call: telegramApi(botToken), userId });
+  const call = telegramApi(botToken);
+  confirmSend = telegramSendConfirmation({ call, userId });
+  reportOutcome = telegramOutcomeReporter(call, userId);
   placeOrderNote = TELEGRAM_PLACE_ORDER_NOTE;
   console.error("foodpanda-mcp: orders are confirmed in Telegram");
 } else {
@@ -75,7 +84,7 @@ if (process.env.FOODPANDA_HTTP_HOST) {
   console.error("foodpanda-mcp: note: FOODPANDA_HTTP_HOST is ignored; this server only listens on 127.0.0.1.");
 }
 
-const client = createClientFromEnv({ confirmSend });
+const client = createClientFromEnv({ confirmSend, reportOutcome });
 const server = createMcpHttpServer({
   client,
   token,

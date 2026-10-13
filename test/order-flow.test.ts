@@ -11,7 +11,12 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
-import { FoodpandaClient, type FoodpandaClientOptions, type HttpFunction } from "../src/foodpanda-client.js";
+import {
+  FoodpandaClient,
+  type FoodpandaClientOptions,
+  type HttpFunction,
+  type SendOutcome,
+} from "../src/foodpanda-client.js";
 import { OrderGuard } from "../src/order-guard.js";
 
 const fixture = (name: string) =>
@@ -89,10 +94,17 @@ function fakeFoodpanda() {
 async function setup(
   guard?: OrderGuard,
   lockFile: string | null = null,
-  confirmSend?: FoodpandaClientOptions["confirmSend"]
+  confirmSend?: FoodpandaClientOptions["confirmSend"],
+  reportOutcome?: FoodpandaClientOptions["reportOutcome"]
 ) {
   const fake = fakeFoodpanda();
-  const fp = new FoodpandaClient(null, 25.033964, 121.564468, { http: fake.http, guard, lockFile, confirmSend });
+  const fp = new FoodpandaClient(null, 25.033964, 121.564468, {
+    http: fake.http,
+    guard,
+    lockFile,
+    confirmSend,
+    reportOutcome,
+  });
   const server = createServer(fp);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
@@ -615,6 +627,83 @@ test("a cart change while the person decides stops the order even if they say ye
     assert.equal(res.isError, true);
     assert.match(res.text, /changed while waiting/);
     assert.equal(fake.checkouts().length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test("after a confirmed send, the outcome is reported; a 'no' reports nothing", async () => {
+  {
+    const outcomes: SendOutcome[] = [];
+    const { call, close } = await setup(undefined, null, async () => false, (o) => outcomes.push(o));
+    try {
+      await fillCart(call);
+      const { confirmation_code } = await prepare(call);
+      await call("place_order", { confirmation_code });
+      assert.deepEqual(outcomes, [], "nothing to report when the person said no");
+    } finally {
+      await close();
+    }
+  }
+  {
+    const outcomes: SendOutcome[] = [];
+    const { fake, call, close } = await setup(undefined, null, async () => true, (o) => outcomes.push(o));
+    try {
+      await fillCart(call);
+      const { confirmation_code } = await prepare(call);
+      const res = await call("place_order", { confirmation_code });
+      assert.equal(fake.checkouts().length, 1);
+      assert.equal(outcomes.length, 1);
+      const o = outcomes[0];
+      if (o.kind === "result") assert.equal(o.result.order_id, JSON.parse(res.text).order_id);
+      else assert.equal(o.checkoutSent, true);
+    } finally {
+      await close();
+    }
+  }
+  {
+    const outcomes: SendOutcome[] = [];
+    const { fake, call, close } = await setup(undefined, null, async () => true, (o) => outcomes.push(o));
+    fake.state.checkout = () => {
+      throw new Error("network down");
+    };
+    try {
+      await fillCart(call);
+      const { confirmation_code } = await prepare(call);
+      assert.equal((await call("place_order", { confirmation_code })).isError, true);
+      assert.equal(outcomes.length, 1);
+      assert.equal(outcomes[0].kind, "error");
+      assert.equal((outcomes[0] as any).checkoutSent, true, "the send was attempted, so its result is unknown");
+    } finally {
+      await close();
+    }
+  }
+});
+
+test("a cart change during confirmation is reported as not sent", async () => {
+  const outcomes: SendOutcome[] = [];
+  let callTool: ((n: string, a?: Record<string, unknown>) => Promise<{ isError: boolean; text: string }>) | undefined;
+  const { fake, call, close } = await setup(
+    undefined,
+    null,
+    async () => {
+      await callTool!("add_to_cart", {
+        restaurant_id: "test01",
+        items: [{ item_id: MEAL, quantity: 1, topping_ids: MEAL_CHOICES }],
+      });
+      return true;
+    },
+    (o) => outcomes.push(o)
+  );
+  callTool = call;
+  try {
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    await call("place_order", { confirmation_code });
+    assert.equal(fake.checkouts().length, 0);
+    assert.equal(outcomes.length, 1);
+    assert.deepEqual({ ...outcomes[0], message: undefined }, { kind: "error", checkoutSent: false, message: undefined });
+    assert.match((outcomes[0] as any).message, /changed while waiting/);
   } finally {
     await close();
   }

@@ -9,7 +9,7 @@
  */
 
 import { execFile } from "node:child_process";
-import type { SendConfirmationRequest } from "./foodpanda-client.js";
+import type { SendConfirmationRequest, SendOutcome } from "./foodpanda-client.js";
 
 export const CONFIRM_BUTTON = "確認下單";
 export const CANCEL_BUTTON = "取消";
@@ -32,6 +32,30 @@ export function confirmationText(order: SendConfirmationRequest): string {
   if (order.delivery_instructions) lines.push(`備註：${order.delivery_instructions}`);
   lines.push("", `按「${CONFIRM_BUTTON}」才會真的送出訂單並付款。`);
   return lines.join("\n");
+}
+
+/**
+ * What to tell the person after they confirmed. Until a real TW checkout response has been
+ * captured, a sent order is never called a success: they are sent to the app to check.
+ */
+export function outcomeText(outcome: SendOutcome): string {
+  if (outcome.kind === "result") {
+    const r = outcome.result;
+    const lines = [
+      "📦 訂單已送出，但還不能確定有沒有成功。",
+      `foodpanda 回覆的狀態：${r.status}${r.order_id ? `（編號 ${r.order_id}）` : ""}`,
+      "請打開 foodpanda App 確認訂單和扣款。",
+    ];
+    if (r.attention) lines.push("⚠️ foodpanda 回覆的金額或付款方式和你確認的不一樣，請馬上到 App 查看。");
+    return lines.join("\n");
+  }
+  if (outcome.checkoutSent) {
+    return "⚠️ 訂單可能已經送出，但不知道結果。請打開 foodpanda App 確認；確認之前不要再下一次。";
+  }
+  if (/changed while waiting/.test(outcome.message)) {
+    return "❌ 沒有下單：你確認的時候購物車剛好被改了。要的話請 Grok Bot 重新準備訂單。";
+  }
+  return "❌ 沒有下單：送出前出了問題。要的話請 Grok Bot 重新準備訂單。";
 }
 
 /** Runs osascript with arguments (no shell); resolves with stdout, or null if it exited non-zero. */

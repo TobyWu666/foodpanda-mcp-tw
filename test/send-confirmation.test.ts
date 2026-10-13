@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CONFIRM_BUTTON, MAX_DIALOGS_PER_WINDOW, DIALOG_WINDOW_MS, confirmationText, macSendConfirmation } from "../src/send-confirmation.js";
+import { outcomeText, CONFIRM_BUTTON, MAX_DIALOGS_PER_WINDOW, DIALOG_WINDOW_MS, confirmationText, macSendConfirmation } from "../src/send-confirmation.js";
 
 const order = {
   restaurant: "測試餐廳",
@@ -73,4 +73,28 @@ test("one dialog at a time, and at most a few per window", async () => {
   t += DIALOG_WINDOW_MS;
   await confirm(order);
   assert.equal(runs, MAX_DIALOGS_PER_WINDOW + 1, "the window slides");
+});
+
+test("the outcome message never claims success and always points to the app when an order may exist", () => {
+  const result = outcomeText({
+    kind: "result",
+    result: { order_id: "x1", status: "unknown", estimated_delivery_time: "", total: 120, payment_method: "cash" },
+  });
+  assert.match(result, /還不能確定/);
+  assert.match(result, /foodpanda App/);
+  assert.doesNotMatch(result, /成功下單|已成功/);
+  assert.match(
+    outcomeText({ kind: "result", result: { attention: "MISMATCH", order_id: "x", status: "s", estimated_delivery_time: "", total: 1, payment_method: "cash" } }),
+    /不一樣/
+  );
+
+  const unknown = outcomeText({ kind: "error", checkoutSent: true, message: "status unknown" });
+  assert.match(unknown, /可能已經送出/);
+  assert.match(unknown, /不要再下一次/);
+
+  assert.match(
+    outcomeText({ kind: "error", checkoutSent: false, message: "The cart changed while waiting for confirmation." }),
+    /沒有下單.*購物車/
+  );
+  assert.match(outcomeText({ kind: "error", checkoutSent: false, message: "other" }), /沒有下單/);
 });

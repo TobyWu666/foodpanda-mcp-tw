@@ -12,12 +12,13 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { SendConfirmationRequest } from "./foodpanda-client.js";
+import type { SendConfirmationRequest, SendOutcome } from "./foodpanda-client.js";
 import {
   CANCEL_BUTTON,
   CONFIRM_BUTTON,
   DEFAULT_CONFIRM_TIMEOUT_SECONDS,
   confirmationText,
+  outcomeText,
   rateLimited,
   type SendConfirmer,
 } from "./send-confirmation.js";
@@ -139,4 +140,13 @@ export function telegramSendConfirmation(options: TelegramConfirmOptions): SendC
   };
 
   return rateLimited(ask, now);
+}
+
+/** Sends the person the outcome after they confirmed (see outcomeText). Fire and forget. */
+export function telegramOutcomeReporter(call: TelegramCall, userId: number): (outcome: SendOutcome) => void {
+  return (outcome) => {
+    call("sendMessage", { chat_id: userId, text: outcomeText(outcome) }, 10_000).catch((err) => {
+      console.error("foodpanda-mcp: could not send the outcome to Telegram:", (err as Error).message);
+    });
+  };
 }

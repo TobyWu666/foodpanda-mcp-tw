@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseTelegramUserId, telegramSendConfirmation, type TelegramCall } from "../src/telegram-confirmation.js";
+import {
+  parseTelegramUserId,
+  telegramOutcomeReporter,
+  telegramSendConfirmation,
+  type TelegramCall,
+} from "../src/telegram-confirmation.js";
+import { outcomeText } from "../src/send-confirmation.js";
 
 const ME = 123456789;
 const order = {
@@ -92,4 +98,17 @@ test("cancel, someone else's press, an old button, a timeout or a failure all sa
     const t = fakeTelegram([[ME, "yes"]], { failSend: true });
     assert.equal(await telegramSendConfirmation({ call: t.call, userId: ME, now: t.now })(order), false);
   }
+});
+
+test("the outcome goes to the owner as a new message, and a Telegram failure is swallowed", async () => {
+  const sent: any[] = [];
+  const outcome = { kind: "error" as const, checkoutSent: true, message: "status unknown" };
+  telegramOutcomeReporter(async (method, params) => (sent.push({ method, params }), {}), ME)(outcome);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(sent, [{ method: "sendMessage", params: { chat_id: ME, text: outcomeText(outcome) } }]);
+
+  telegramOutcomeReporter(async () => {
+    throw new Error("down");
+  }, ME)(outcome);
+  await new Promise((r) => setImmediate(r));
 });

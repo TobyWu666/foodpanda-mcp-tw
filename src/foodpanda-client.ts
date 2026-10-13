@@ -113,7 +113,17 @@ export interface FoodpandaClientOptions {
    * the AI client (see send-confirmation.ts).
    */
   confirmSend?: (order: SendConfirmationRequest) => Promise<boolean>;
+  /**
+   * Told what happened after the person confirmed: the result, or an error and whether
+   * checkout was sent. Lets the confirmation channel (Telegram) report back. Never throws
+   * into placeOrder.
+   */
+  reportOutcome?: (outcome: SendOutcome) => void;
 }
+
+export type SendOutcome =
+  | { kind: "result"; result: OrderResult }
+  | { kind: "error"; checkoutSent: boolean; message: string };
 
 /** What a person is shown before an order is sent. */
 export interface SendConfirmationRequest {
@@ -224,6 +234,7 @@ export class FoodpandaClient {
   private readonly orderCheckLock: OrderCheckLockStore;
   private readonly http: HttpFunction | undefined;
   private readonly confirmSend: FoodpandaClientOptions["confirmSend"];
+  private readonly reportOutcome: FoodpandaClientOptions["reportOutcome"];
 
   constructor(
     sessionToken: string | null,
@@ -233,6 +244,7 @@ export class FoodpandaClient {
   ) {
     this.http = options.http;
     this.confirmSend = options.confirmSend;
+    this.reportOutcome = options.reportOutcome;
     this.orderCheckLock = new OrderCheckLockStore(
       options.lockFile !== undefined
         ? options.lockFile
@@ -1028,6 +1040,17 @@ export class FoodpandaClient {
    */
   async placeOrder(confirmationCode: string): Promise<OrderResult> {
     const prepared = this.prepared;
+    // Set once a person confirmed, and once checkout went out, for reportOutcome.
+    let personConfirmed = false;
+    let checkoutSent = false;
+    const report = (outcome: SendOutcome) => {
+      if (!personConfirmed || !this.reportOutcome) return;
+      try {
+        this.reportOutcome(outcome);
+      } catch (err) {
+        console.error("foodpanda-mcp: reporting the outcome failed:", redactForLog((err as Error).message));
+      }
+    };
     try {
       if (!prepared || !this.cartVendor || this.cartProducts.length === 0) {
         // Let the guard word it: missing, used, expired or unknown.
@@ -1098,6 +1121,7 @@ export class FoodpandaClient {
           console.error("foodpanda-mcp: asking for confirmation failed:", redactForLog((err as Error).message));
         }
         if (!confirmed) throw new OrderNotConfirmedError();
+        personConfirmed = true;
         // The cart can be edited by other tool calls while the person decides.
         if (fingerprintOrder(this.orderSnapshot(customer, address, option, prepared.deliveryInstructions)) !== fingerprintOrder(current)) {
           throw new OrderConfirmationError(
@@ -1108,6 +1132,7 @@ export class FoodpandaClient {
       }
 
       let resp: unknown;
+      checkoutSent = true;
       try {
         // restRequestOnce, never restRequest: a checkout must not be retried.
         resp = await this.restRequestOnce<unknown>("/api/v5/cart/checkout", {
@@ -1135,7 +1160,7 @@ export class FoodpandaClient {
       const total = current.total;
       this.clearCart();
       const mismatches = checkoutMismatches(outcome, { total, method: option.method });
-      return {
+      const result: OrderResult = {
         ...(mismatches.length > 0
           ? {
               attention:
@@ -1149,6 +1174,11 @@ export class FoodpandaClient {
         total,
         payment_method: option.choice,
       };
+      report({ kind: "result", result });
+      return result;
+    } catch (err) {
+      report({ kind: "error", checkoutSent, message: (err as Error).message });
+      throw err;
     } finally {
       // Whatever happened, this code and this preparation are finished.
       this.guard.invalidate();
