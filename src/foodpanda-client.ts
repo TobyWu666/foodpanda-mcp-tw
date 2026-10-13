@@ -283,8 +283,9 @@ export class FoodpandaClient {
    * refresh_token. When the user logs in again elsewhere, token.json changes: take that
    * token if it is a different, live, newer one. True when the token was swapped.
    *
-   * The prepared order is kept: place_order re-fetches the customer and refuses the order
-   * if the account differs from the one prepare_order saw.
+   * Only a login for the same account is taken (same user_id as the current token);
+   * switching accounts goes through refresh_token, which drops any prepared order. And
+   * place_order refuses to send a checkout if the token changed while it ran.
    */
   private reloadSessionToken(): boolean {
     if (!this.reloadToken) return false;
@@ -296,6 +297,10 @@ export class FoodpandaClient {
     }
     if (!candidate || candidate === this.sessionToken || candidate === this.rejectedToken) return false;
     if (tokenProblem(candidate)) return false;
+    if (this.sessionToken && (!this.customerCode || this.extractCustomerCode(candidate) !== this.customerCode)) {
+      console.error("foodpanda-mcp: token.json holds a different account; log in again with refresh_token to switch");
+      return false;
+    }
     const expiryOf = (t: string | null) => {
       const payload = t ? decodeJwtPayload(t) : null;
       return payload ? tokenExpiry(payload) : null;
@@ -1070,6 +1075,9 @@ export class FoodpandaClient {
    */
   async placeOrder(confirmationCode: string): Promise<OrderResult> {
     const prepared = this.prepared;
+    // The login the order is checked under. A newer saved login may be swapped in by any
+    // request below; the checkout must then not go out under it (see the check before sending).
+    const login = this.sessionToken;
     try {
       if (!prepared || !this.cartVendor || this.cartProducts.length === 0) {
         // Let the guard word it: missing, used, expired or unknown.
@@ -1121,6 +1129,14 @@ export class FoodpandaClient {
         webHost: cfg.webHost,
         currency: cfg.currency,
       });
+
+      if (this.sessionToken !== login) {
+        throw new OrderConfirmationError(
+          "changed",
+          "The login changed while the order was being checked, so nothing was sent. Call prepare_order again.",
+          ["account"]
+        );
+      }
 
       let resp: unknown;
       try {

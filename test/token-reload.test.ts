@@ -80,6 +80,14 @@ test("an older or expired saved login is not swapped in", async () => {
   }
 });
 
+test("a saved login for another account is never swapped in", async () => {
+  const OTHER = jwt({ user_id: "twcust02", expires: now + 3600 });
+  const { http, sent } = fake([OTHER]);
+  const { fp } = client(LIVE, http, [OTHER]);
+  await assert.rejects(fp.getRestaurantDetails("test01"), /Session token expired or invalid/);
+  assert.deepEqual(sent, [LIVE]);
+});
+
 test("token.json is read again only when it changes, and the token is never logged", () => {
   const dir = mkdtempSync(join(tmpdir(), "fp-token-"));
   const file = join(dir, "token.json");
