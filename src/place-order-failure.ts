@@ -19,8 +19,16 @@ export function checkoutMayHaveBeenSent(error: unknown): boolean {
   return error instanceof CheckoutStatusUnknownError || (error as { code?: unknown } | null)?.code === "CHECKOUT_STATUS_UNKNOWN";
 }
 
+/**
+ * The error text can quote foodpanda or the network; a quoted "[checkout_sent: ...]"
+ * must not look like this server's marker to a program that only reads the marker.
+ */
+function defuseMarkers(message: string): string {
+  return message.replace(/\[(\s*checkout_sent\s*:)/gi, "($1");
+}
+
 export function placeOrderFailure(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = defuseMarkers(error instanceof Error ? error.message : String(error));
   const tail = checkoutMayHaveBeenSent(error) ? CHECKOUT_MAYBE_SENT : CHECKOUT_NOT_SENT;
   return {
     content: [{ type: "text" as const, text: `place_order result: ${message}\n${tail}` }],

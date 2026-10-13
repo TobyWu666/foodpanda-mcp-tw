@@ -57,3 +57,5 @@ foodpanda 的登入和 Chrome 視窗都在你的 Mac 上，所以 mcp-check 也�
 - `place_order` 失敗時，最後一行一定是下面其中一種：
   - `[checkout_sent: no] ...`：還沒送出，沒有下單。
   - `[checkout_sent: unknown] ...`：可能已經下單，要先到 foodpanda App 查。
+- 審核中心只看 `[checkout_sent: no]` 這個標記，不比對錯誤文字。沒有這個標記的錯誤一律當成「可能已下單」。
+  錯誤內文若引用到 foodpanda 的回應，裡面像標記的字會被改掉，假冒不了。
