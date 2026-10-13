@@ -43,6 +43,8 @@ function fakeFoodpanda() {
     total: 366,
     intent: structuredClone(intent.response),
     addresses: structuredClone(addresses),
+    /** Answer 401 to this request (e.g. a login that expires mid-order). */
+    refuse: (_path: string, _auth: string | undefined): boolean => false,
     /** What checkout answers; a function so a test can throw (network failure). */
     checkout: (): { status: number; text: string } => ({
       status: 200,
@@ -55,6 +57,7 @@ function fakeFoodpanda() {
     const body = init.body ? JSON.parse(init.body) : null;
     calls.push({ method, path: u.pathname, body, headers: init.headers ?? {}, via: init.via });
     const ok = (value: unknown) => ({ status: 200, ok: true, text: JSON.stringify(value) });
+    if (state.refuse(u.pathname, init.headers?.Authorization)) return { status: 401, ok: false, text: "{}" };
 
     if (u.pathname === "/graphql") {
       const op = init.headers?.["x-apollo-operation-name"];
@@ -86,9 +89,18 @@ function fakeFoodpanda() {
   return { http, calls, state, checkouts };
 }
 
-async function setup(guard?: OrderGuard, lockFile: string | null = null) {
+async function setup(
+  guard?: OrderGuard,
+  lockFile: string | null = null,
+  login: { token: string | null; reloadToken?: () => string | null } = { token: null }
+) {
   const fake = fakeFoodpanda();
-  const fp = new FoodpandaClient(null, 25.033964, 121.564468, { http: fake.http, guard, lockFile });
+  const fp = new FoodpandaClient(login.token, 25.033964, 121.564468, {
+    http: fake.http,
+    guard,
+    lockFile,
+    reloadToken: login.reloadToken ?? null,
+  });
   const server = createServer(fp);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
@@ -533,4 +545,28 @@ test("a login token counts only when /api/v5/customers knows the account", async
     check(async () => ({ status: 403, ok: false, text: "<title>Access to this page has been denied</title>" })),
     /PerimeterX/
   );
+});
+
+test("a newer login swapped in during place_order stops the checkout before it is sent", async () => {
+  // Synthetic tokens for one account; the second expires later, as a fresh login would.
+  const jwt = (payload: Record<string, unknown>) =>
+    `${Buffer.from("{}").toString("base64url")}.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.sig`;
+  const now = Math.floor(Date.now() / 1000);
+  const A = jwt({ user_id: "twcust01", expires: now + 600 });
+  const B = jwt({ user_id: "twcust01", expires: now + 3600 });
+  let saved: string | null = null;
+  const { fake, call, close } = await setup(undefined, null, { token: A, reloadToken: () => saved });
+  try {
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    // A expires at the purchase intent step of place_order; token.json now holds B.
+    saved = B;
+    fake.state.refuse = (path, auth) => path === "/api/v5/purchase/intent" && auth === `Bearer ${A}`;
+    const res = await call("place_order", { confirmation_code });
+    assert.equal(res.isError, true);
+    assert.match(res.text, /login changed .*nothing was sent/);
+    assert.equal(fake.checkouts().length, 0, "no checkout under a login the order was not checked with");
+  } finally {
+    await close();
+  }
 });

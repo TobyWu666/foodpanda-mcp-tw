@@ -1,5 +1,5 @@
 import { join } from "path";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "fs";
 import { getRegionConfig, stateDir } from "./config.js";
 import { browserTransport } from "./browser-transport.js";
 import { persistedTokenProblem, type PersistedToken } from "./token-check.js";
@@ -12,10 +12,10 @@ const BROWSER_DATA_DIR = join(TOKEN_DIR, "browser-data");
  * The saved token, if it belongs to this region and has not expired.
  * A rejected file is left on disk (the next login overwrites it) and the reason is logged.
  */
-export function loadPersistedToken(): string | null {
+export function loadPersistedToken(file: string = TOKEN_FILE): string | null {
   try {
-    if (!existsSync(TOKEN_FILE)) return null;
-    const data = JSON.parse(readFileSync(TOKEN_FILE, "utf-8")) as PersistedToken;
+    if (!existsSync(file)) return null;
+    const data = JSON.parse(readFileSync(file, "utf-8")) as PersistedToken;
     const problem = persistedTokenProblem(data, getRegionConfig().apiBase);
     if (problem) {
       console.error(`foodpanda-mcp: ignoring saved token (${problem}); log in again with refresh_token`);
@@ -25,6 +25,25 @@ export function loadPersistedToken(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A reader for token.json that only reads (and logs) when the file changed since the last
+ * call, so a long-running server can pick up a login saved by another process cheaply.
+ */
+export function persistedTokenReloader(file: string = TOKEN_FILE): () => string | null {
+  let seen: number | null = null;
+  return () => {
+    let mtime: number;
+    try {
+      mtime = statSync(file).mtimeMs;
+    } catch {
+      return null;
+    }
+    if (mtime === seen) return null;
+    seen = mtime;
+    return loadPersistedToken(file);
+  };
 }
 
 export function persistToken(token: string): void {

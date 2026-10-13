@@ -25,6 +25,8 @@ import { getRegionConfig, requireHash, stateDir } from "./config.js";
 import { OrderCheckLockStore } from "./order-lock.js";
 import { browserTransport } from "./browser-transport.js";
 import { redactForLog } from "./redact.js";
+import { persistedTokenReloader } from "./token-manager.js";
+import { decodeJwtPayload, tokenExpiry, tokenProblem } from "./token-check.js";
 import {
   type GraphqlOperation,
   type RestaurantPage,
@@ -107,6 +109,12 @@ export interface FoodpandaClientOptions {
   guard?: OrderGuard;
   /** Where the "check the app first" lock is kept; null keeps it in memory. Default: the state dir. */
   lockFile?: string | null;
+  /**
+   * Returns the saved login (token.json) when it may have changed, else null. Used to pick up
+   * a fresh login without a restart. Default: re-read token.json when its file changes; null
+   * (off) under tests.
+   */
+  reloadToken?: (() => string | null) | null;
 }
 
 /** What prepareOrder locked; place_order rebuilds the order from it. */
@@ -208,6 +216,12 @@ export class FoodpandaClient {
           : join(stateDir(), ORDER_CHECK_LOCK_FILE)
     );
     this.guard = options.guard ?? new OrderGuard();
+    this.reloadToken =
+      options.reloadToken !== undefined
+        ? options.reloadToken
+        : process.env.NODE_TEST_CONTEXT
+          ? null
+          : persistedTokenReloader();
     this.sessionToken = sessionToken;
     this.latitude = latitude;
     this.longitude = longitude;
@@ -253,6 +267,70 @@ export class FoodpandaClient {
     this.cachedCustomerProfile = null;
     this.sessionToken = token;
     this.customerCode = this.extractCustomerCode(token);
+    this.rejectedToken = null;
+  }
+
+  // ----------------------------------------------------------------
+  // Picking up a newer saved login
+  // ----------------------------------------------------------------
+
+  private readonly reloadToken: (() => string | null) | null;
+  /** The last token foodpanda refused; never swapped back in. */
+  private rejectedToken: string | null = null;
+
+  /**
+   * The TW login lasts about an hour, and a front end in front of this server may not offer
+   * refresh_token. When the user logs in again elsewhere, token.json changes: take that
+   * token if it is a different, live, newer one. True when the token was swapped.
+   *
+   * Only a login for the same account is taken (same user_id as the current token);
+   * switching accounts goes through refresh_token, which drops any prepared order. And
+   * place_order refuses to send a checkout if the token changed while it ran.
+   */
+  private reloadSessionToken(): boolean {
+    if (!this.reloadToken) return false;
+    let candidate: string | null;
+    try {
+      candidate = this.reloadToken();
+    } catch {
+      return false;
+    }
+    if (!candidate || candidate === this.sessionToken || candidate === this.rejectedToken) return false;
+    if (tokenProblem(candidate)) return false;
+    if (this.sessionToken && (!this.customerCode || this.extractCustomerCode(candidate) !== this.customerCode)) {
+      console.error("foodpanda-mcp: token.json holds a different account; log in again with refresh_token to switch");
+      return false;
+    }
+    const expiryOf = (t: string | null) => {
+      const payload = t ? decodeJwtPayload(t) : null;
+      return payload ? tokenExpiry(payload) : null;
+    };
+    const current = expiryOf(this.sessionToken);
+    const next = expiryOf(candidate);
+    if (current !== null && next !== null && next <= current) return false;
+    this.sessionToken = candidate;
+    this.customerCode = this.extractCustomerCode(candidate);
+    this.cachedCustomerProfile = null;
+    console.error("foodpanda-mcp: using the newer saved login from token.json");
+    return true;
+  }
+
+  /**
+   * Run a request with a fresh login: swap in a newer saved one first if the current token
+   * has expired, and once more if foodpanda refuses the token (401/403). At most one retry,
+   * and only when the token actually changed, so this never loops. Checkout never comes
+   * through here (it is sent once with restRequestOnce).
+   */
+  private async withFreshToken<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.sessionToken && tokenProblem(this.sessionToken)) this.reloadSessionToken();
+    try {
+      return await operation();
+    } catch (err) {
+      if (!/Session token expired or invalid/.test((err as Error).message)) throw err;
+      this.rejectedToken = this.sessionToken;
+      if (!this.reloadSessionToken()) throw err;
+      return operation();
+    }
   }
 
   // ----------------------------------------------------------------
@@ -383,11 +461,13 @@ export class FoodpandaClient {
     options: RequestInit = {},
     transport: Pick<HttpInit, "via" | "noWarmUp"> = {}
   ): Promise<T> {
-    return this.withPerimeterXRetry(() => this.restRequestOnce<T>(path, options, transport));
+    return this.withFreshToken(() =>
+      this.withPerimeterXRetry(() => this.restRequestOnce<T>(path, options, transport))
+    );
   }
 
   private async graphqlRequest<T>(op: GraphqlOperation): Promise<T> {
-    return this.withPerimeterXRetry(() => this.graphqlRequestOnce<T>(op));
+    return this.withFreshToken(() => this.withPerimeterXRetry(() => this.graphqlRequestOnce<T>(op)));
   }
 
   private async restRequestOnce<T>(
@@ -995,6 +1075,9 @@ export class FoodpandaClient {
    */
   async placeOrder(confirmationCode: string): Promise<OrderResult> {
     const prepared = this.prepared;
+    // The login the order is checked under. A newer saved login may be swapped in by any
+    // request below; the checkout must then not go out under it (see the check before sending).
+    const login = this.sessionToken;
     try {
       if (!prepared || !this.cartVendor || this.cartProducts.length === 0) {
         // Let the guard word it: missing, used, expired or unknown.
@@ -1046,6 +1129,14 @@ export class FoodpandaClient {
         webHost: cfg.webHost,
         currency: cfg.currency,
       });
+
+      if (this.sessionToken !== login) {
+        throw new OrderConfirmationError(
+          "changed",
+          "The login changed while the order was being checked, so nothing was sent. Call prepare_order again.",
+          ["account"]
+        );
+      }
 
       let resp: unknown;
       try {
