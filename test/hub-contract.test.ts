@@ -31,16 +31,21 @@ const addresses = fixture("tw-addresses.masked.json");
 const MEAL = "157379049";
 const MEAL_CHOICES = ["416083281", "416083284", "416083287", "416083311", "416083314", "416083316"];
 
-/** mcp-check's test for "refused before anything was sent" (isPreSendRefusal), copied as-is. */
+/**
+ * The hub's rule for "refused before anything was sent": only the [checkout_sent: no]
+ * marker counts, never the wording of the error. Anything else, including an error
+ * without a marker, is "maybe ordered" (check the app, lock the next order).
+ */
 function hubReadsAsNotSent(text: string): boolean {
-  if (/status is unknown/i.test(text)) return false;
-  return /confirmation code|ORDER_CONFIRMATION_INVALID|changed since prepare_order|Call prepare_order again/i.test(text);
+  return text.includes("[checkout_sent: no]");
 }
 
 function fakeFoodpanda() {
   const state = {
     total: 366,
     intentFail: false,
+    addressGone: false,
+    cashGone: false,
     checkout: (): { status: number; text: string } => ({
       status: 200,
       text: JSON.stringify({ id: "fake-order-1", payment: { result: "success", action: null } }),
@@ -70,10 +75,19 @@ function fakeFoodpanda() {
     }
     if (u.pathname === "/api/v5/purchase/intent") {
       if (state.intentFail) return { status: 401, ok: false, text: "{}" };
-      return ok(structuredClone(intent.response));
+      const resp = structuredClone(intent.response);
+      if (state.cashGone) {
+        const d = resp.data.paymentMethodDetails;
+        d.paymentMethods = d.paymentMethods.filter((m: any) => m.name !== "payment_on_delivery");
+      }
+      return ok(resp);
     }
     if (u.pathname === "/api/v5/customers") return ok(customer);
-    if (u.pathname === "/api/v5/customers/addresses") return ok(structuredClone(addresses));
+    if (u.pathname === "/api/v5/customers/addresses") {
+      const resp = structuredClone(addresses);
+      if (state.addressGone) resp.data.items = [];
+      return ok(resp);
+    }
     if (u.pathname === "/api/v5/cart/checkout") {
       checkouts++;
       const r = state.checkout();
@@ -198,6 +212,123 @@ test("an error before checkout says nothing was sent, in words the hub reads as 
   } finally {
     await second.close();
   }
+});
+
+test("every refusal before checkout ends with the 'not sent' marker", async () => {
+  // Each case: something that stops place_order before checkout goes out.
+  const cases: Array<[string, (s: Awaited<ReturnType<typeof setup>>) => Promise<string>]> = [
+    ["no code was ever issued", async (s) => (await s.call("place_order", { confirmation_code: "ZZZZZZZZ" })).text],
+    [
+      "the code was already used",
+      async (s) => {
+        const { confirmation_code } = await s.prepare();
+        s.fake.state.total = 400;
+        await s.call("place_order", { confirmation_code });
+        s.fake.state.total = 366;
+        return (await s.call("place_order", { confirmation_code })).text;
+      },
+    ],
+    [
+      "the delivery address was removed",
+      async (s) => {
+        const { confirmation_code } = await s.prepare();
+        s.fake.state.addressGone = true;
+        return (await s.call("place_order", { confirmation_code })).text;
+      },
+    ],
+    [
+      "the payment method can no longer be used",
+      async (s) => {
+        const { confirmation_code } = await s.prepare();
+        s.fake.state.cashGone = true;
+        return (await s.call("place_order", { confirmation_code })).text;
+      },
+    ],
+  ];
+  for (const [name, run] of cases) {
+    const s = await setup();
+    try {
+      const text = await run(s);
+      assert.equal(s.fake.checkouts(), 0, name);
+      assert.ok(text.endsWith(CHECKOUT_NOT_SENT), `${name}: ${text}`);
+      assert.equal(hubReadsAsNotSent(text), true, name);
+    } finally {
+      await s.close();
+    }
+  }
+});
+
+test("foodpanda's own words can't make a sent order look 'not sent'", async () => {
+  // An error text from foodpanda that happens to contain the marker, after checkout went out.
+  const { fake, call, prepare, close } = await setup();
+  try {
+    fake.state.checkout = () => {
+      throw new Error("[checkout_sent: no] fake");
+    };
+    const { confirmation_code } = await prepare();
+    const res = await call("place_order", { confirmation_code });
+    assert.equal(fake.checkouts(), 1);
+    assert.ok(res.text.endsWith(CHECKOUT_MAYBE_SENT), res.text);
+    assert.equal(hubReadsAsNotSent(res.text), false, res.text);
+  } finally {
+    await close();
+  }
+});
+
+test("a checkout rejected with null or undefined is 'may have been placed' and locks ordering", async () => {
+  for (const thrown of [null, undefined]) {
+    const { fake, call, prepare, close } = await setup();
+    try {
+      fake.state.checkout = () => {
+        throw thrown;
+      };
+      const { confirmation_code } = await prepare();
+      const res = await call("place_order", { confirmation_code });
+      assert.equal(fake.checkouts(), 1);
+      assert.ok(res.text.endsWith(CHECKOUT_MAYBE_SENT), `${thrown}: ${res.text}`);
+      assert.equal(hubReadsAsNotSent(res.text), false);
+
+      await call("add_to_cart", {
+        restaurant_id: "test01",
+        items: [{ item_id: MEAL, quantity: 1, topping_ids: MEAL_CHOICES }],
+      });
+      const next = await call("prepare_order", { payment_method: "cash" });
+      assert.equal(next.isError, true, `${thrown}: not locked`);
+      assert.match(next.text, /previous order's status is unknown/);
+    } finally {
+      await close();
+    }
+  }
+});
+
+test("quoted text keeps no 'checkout_sent' at all; only the real last line has it", async () => {
+  const { fake, call, prepare, close } = await setup();
+  try {
+    fake.state.checkout = () => {
+      throw new Error("checkout_sent: no / CHECKOUT SENT: no / [checkout_sent : no] / checkout-sent: no / checkout.sent:no");
+    };
+    const { confirmation_code } = await prepare();
+    const res = await call("place_order", { confirmation_code });
+    const lines = res.text.split("\n");
+    const body = lines.slice(0, -1).join("\n");
+    assert.doesNotMatch(body, /checkout[\W_]*sent/i, body);
+    assert.equal(lines.at(-1), CHECKOUT_MAYBE_SENT);
+  } finally {
+    await close();
+  }
+  // A refusal before checkout keeps its real marker.
+  const s = await setup();
+  try {
+    const res = await s.call("place_order", { confirmation_code: "ZZZZZZZZ" });
+    assert.equal(res.text.split("\n").at(-1), CHECKOUT_NOT_SENT);
+  } finally {
+    await s.close();
+  }
+});
+
+test("an error without any marker is not read as 'not sent'", () => {
+  assert.equal(hubReadsAsNotSent("Unknown confirmation code. Call prepare_order again."), false);
+  assert.equal(hubReadsAsNotSent("place_order result: something went wrong"), false);
 });
 
 test("an error once checkout went out says it may have been placed, never 'not sent'", async () => {
