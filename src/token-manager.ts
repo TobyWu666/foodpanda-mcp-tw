@@ -63,8 +63,8 @@ export async function refreshTokenViaBrowser(
   // A headless browser has no window to log in through: the call would just time out.
   if (cfg.headless) {
     throw new Error(
-      "Logging in needs a visible browser window, but FOODPANDA_HEADLESS is on (the default). " +
-        "Set FOODPANDA_HEADLESS=0 in this MCP server's env and restart it, then call refresh_token again."
+      "Logging in needs a visible browser window, but FOODPANDA_HEADLESS is on. " +
+        "Remove FOODPANDA_HEADLESS (or set it to 0) in this MCP server's env and restart it, then call refresh_token again."
     );
   }
 
