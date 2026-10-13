@@ -14,6 +14,11 @@ import type { SendConfirmationRequest } from "./foodpanda-client.js";
 export const CONFIRM_BUTTON = "確認下單";
 export const CANCEL_BUTTON = "取消";
 export const DEFAULT_CONFIRM_TIMEOUT_SECONDS = 120;
+/** At most this many dialogs per window, and only one open at a time, so a remote client cannot flood the screen. */
+export const MAX_DIALOGS_PER_WINDOW = 5;
+export const DIALOG_WINDOW_MS = 10 * 60 * 1000;
+/** What the script prints for a confirm: ASCII, so the check does not depend on osascript's output encoding. */
+const CONFIRMED = "CONFIRMED";
 
 /** The dialog text: everything that decides what is charged and where it goes. */
 export function confirmationText(order: SendConfirmationRequest): string {
@@ -47,7 +52,8 @@ const DIALOG_SCRIPT = [
     `default button "${CANCEL_BUTTON}" cancel button "${CANCEL_BUTTON}" with icon caution ` +
     "giving up after ((item 2 of argv) as integer)",
   'if gave up of r then return "timeout"',
-  "return button returned of r",
+  `if button returned of r is "${CONFIRM_BUTTON}" then return "${CONFIRMED}"`,
+  'return "no"',
   "end run",
 ];
 
@@ -55,6 +61,7 @@ export interface MacConfirmOptions {
   timeoutSeconds?: number;
   platform?: NodeJS.Platform;
   run?: OsascriptRunner;
+  now?: () => number;
 }
 
 export function macSendConfirmation(
@@ -63,14 +70,29 @@ export function macSendConfirmation(
   const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_CONFIRM_TIMEOUT_SECONDS;
   const platform = options.platform ?? process.platform;
   const run = options.run ?? runOsascript;
+  const now = options.now ?? Date.now;
+  let open = false;
+  let shown: number[] = [];
   return async (order) => {
     if (platform !== "darwin") {
       console.error("foodpanda-mcp: place_order refused: confirming an order needs the macOS dialog.");
       return false;
     }
-    const args = DIALOG_SCRIPT.flatMap((line) => ["-e", line]);
-    args.push(confirmationText(order), String(timeoutSeconds));
-    const answer = await run(args, (timeoutSeconds + 10) * 1000);
-    return answer === CONFIRM_BUTTON;
+    const t = now();
+    shown = shown.filter((at) => t - at < DIALOG_WINDOW_MS);
+    if (open || shown.length >= MAX_DIALOGS_PER_WINDOW) {
+      console.error("foodpanda-mcp: place_order refused: a confirmation dialog is open or too many were shown recently.");
+      return false;
+    }
+    shown.push(t);
+    open = true;
+    try {
+      const args = DIALOG_SCRIPT.flatMap((line) => ["-e", line]);
+      args.push(confirmationText(order), String(timeoutSeconds));
+      const answer = await run(args, (timeoutSeconds + 10) * 1000);
+      return answer === CONFIRMED;
+    } finally {
+      open = false;
+    }
   };
 }
