@@ -24,7 +24,7 @@ export function checkoutMayHaveBeenSent(error: unknown): boolean {
  * server's marker, even to a loose match, so the word itself is changed.
  */
 function defuseMarkers(message: string): string {
-  return message.replace(/checkout[\s_]*sent/gi, "checkout-sent");
+  return message.replace(/checkout[\W_]*sent/gi, "checkout status");
 }
 
 function messageOf(error: unknown): string {

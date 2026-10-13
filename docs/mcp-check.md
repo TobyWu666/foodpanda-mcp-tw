@@ -60,5 +60,5 @@ foodpanda 的登入和 Chrome 視窗都在你的 Mac 上，所以 mcp-check 也�
 - 依 toby 告知（2026-10-13），mcp-check 已改成只看 `[checkout_sent: no]` 標記，不再比對錯誤文字；
   **尚未對照 mcp-check 的程式碼確認**（之前看過的 mcp-check 版本還是比對文字）。
   `test/hub-contract.test.ts` 用的就是這條規則：沒有這個標記的錯誤一律當成「可能已下單」。
-  錯誤內文若引用到 foodpanda 或網路錯誤的文字，裡面的 `checkout_sent` 字樣會被改成 `checkout-sent`，
+  錯誤內文若引用到 foodpanda 或網路錯誤的文字，裡面的 `checkout_sent` 字樣會被改成 `checkout status`，
   只有最後一行是真的標記。結帳請求一旦可能已送出，任何錯誤都只會得到 `[checkout_sent: unknown]` 並上鎖。

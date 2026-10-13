@@ -305,13 +305,13 @@ test("quoted text keeps no 'checkout_sent' at all; only the real last line has i
   const { fake, call, prepare, close } = await setup();
   try {
     fake.state.checkout = () => {
-      throw new Error("checkout_sent: no / CHECKOUT SENT: no / [checkout_sent : no]");
+      throw new Error("checkout_sent: no / CHECKOUT SENT: no / [checkout_sent : no] / checkout-sent: no / checkout.sent:no");
     };
     const { confirmation_code } = await prepare();
     const res = await call("place_order", { confirmation_code });
     const lines = res.text.split("\n");
     const body = lines.slice(0, -1).join("\n");
-    assert.doesNotMatch(body, /checkout[\s_]*sent/i, body);
+    assert.doesNotMatch(body, /checkout[\W_]*sent/i, body);
     assert.equal(lines.at(-1), CHECKOUT_MAYBE_SENT);
   } finally {
     await close();
