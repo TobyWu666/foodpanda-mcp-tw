@@ -4,6 +4,7 @@ import { FoodpandaClient } from "./foodpanda-client.js";
 import { refreshTokenViaBrowser, persistToken } from "./token-manager.js";
 import { getRegionConfig } from "./config.js";
 import { PLACE_ORDER_DESCRIPTION_NOTE, PREPARE_ORDER_DESCRIPTION_NOTE } from "./order-guard.js";
+import { placeOrderFailure } from "./place-order-failure.js";
 
 export function createServer(client: FoodpandaClient): McpServer {
   const region = getRegionConfig();
@@ -441,7 +442,7 @@ export function createServer(client: FoodpandaClient): McpServer {
       try {
         return text(await client.placeOrder(confirmation_code));
       } catch (error) {
-        return failure("place_order result", error);
+        return placeOrderFailure(error);
       }
     }
   );

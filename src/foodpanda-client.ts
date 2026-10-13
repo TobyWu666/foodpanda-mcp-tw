@@ -1065,35 +1065,44 @@ export class FoodpandaClient {
         );
       }
 
-      console.error("[placeOrder] checkout response:", redactForLog(resp));
-      let outcome;
+      // Checkout went out. From here on, any error means "status unknown" and locks
+      // ordering, whatever threw: nothing below may report the order as not sent.
       try {
-        outcome = parseCheckoutResponse(resp);
+        return this.readCheckoutAnswer(resp, current.total, option);
       } catch (err) {
-        throw this.unresolved(err as Error);
+        throw this.unresolved(
+          err instanceof CheckoutStatusUnknownError
+            ? err
+            : new CheckoutStatusUnknownError(`reading foodpanda's answer failed (${redactForLog(String((err as Error)?.message ?? err))}).`)
+        );
       }
-      const total = current.total;
-      this.clearCart();
-      const mismatches = checkoutMismatches(outcome, { total, method: option.method });
-      return {
-        ...(mismatches.length > 0
-          ? {
-              attention:
-                `MISMATCH: foodpanda reports ${mismatches.join("; ")}. Tell the user right away and ask them ` +
-                "to check the order and the charge in the foodpanda app.",
-            }
-          : {}),
-        order_id: outcome.orderCode,
-        status: outcome.status,
-        estimated_delivery_time: outcome.estimatedDelivery,
-        total,
-        payment_method: option.choice,
-      };
     } finally {
       // Whatever happened, this code and this preparation are finished.
       this.guard.invalidate();
       this.prepared = null;
     }
+  }
+
+  /** Log and read foodpanda's answer to a checkout that was sent; empties the cart. */
+  private readCheckoutAnswer(resp: unknown, total: number, option: PaymentOption): OrderResult {
+    console.error("[placeOrder] checkout response:", redactForLog(resp));
+    const outcome = parseCheckoutResponse(resp);
+    this.clearCart();
+    const mismatches = checkoutMismatches(outcome, { total, method: option.method });
+    return {
+      ...(mismatches.length > 0
+        ? {
+            attention:
+              `MISMATCH: foodpanda reports ${mismatches.join("; ")}. Tell the user right away and ask them ` +
+              "to check the order and the charge in the foodpanda app.",
+          }
+        : {}),
+      order_id: outcome.orderCode,
+      status: outcome.status,
+      estimated_delivery_time: outcome.estimatedDelivery,
+      total,
+      payment_method: option.choice,
+    };
   }
 
   /**
