@@ -223,3 +223,32 @@ test("an error once checkout went out says it may have been placed, never 'not s
     }
   }
 });
+
+test("any error while reading foodpanda's answer is 'may have been placed' and locks ordering", async () => {
+  // A reply nested deep enough to overflow the log redaction (RangeError, not a
+  // CheckoutStatusUnknownError) once checkout has already gone out.
+  // Built as text: JSON.stringify itself overflows at this depth, JSON.parse does not.
+  const deep = '{"x":'.repeat(10000) + '{"id":"fake-order-3"}' + "}".repeat(10000);
+  const { fake, call, prepare, close } = await setup();
+  try {
+    fake.state.checkout = () => ({ status: 200, text: deep });
+    const { confirmation_code } = await prepare();
+    const res = await call("place_order", { confirmation_code });
+    assert.equal(res.isError, true);
+    assert.equal(fake.checkouts(), 1);
+    assert.match(res.text, /order status is unknown/);
+    assert.ok(res.text.endsWith(CHECKOUT_MAYBE_SENT), res.text);
+    assert.equal(hubReadsAsNotSent(res.text), false);
+
+    // Locked: the next order needs the user's check first.
+    await call("add_to_cart", {
+      restaurant_id: "test01",
+      items: [{ item_id: MEAL, quantity: 1, topping_ids: MEAL_CHOICES }],
+    });
+    const next = await call("prepare_order", { payment_method: "cash" });
+    assert.equal(next.isError, true);
+    assert.match(next.text, /previous order's status is unknown/);
+  } finally {
+    await close();
+  }
+});
