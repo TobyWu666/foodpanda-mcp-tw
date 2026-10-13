@@ -35,10 +35,13 @@ foodpanda 的登入和 Chrome 視窗都在你的 Mac 上，所以 mcp-check 也�
 
 ## 注意
 
-- **只選一道審核**：用 mcp-check 時，不要再把 Grok Bot 接到 `foodpanda-mcp-http`
-  （Mac 對話框／Telegram 確認），不然同一筆單要核准兩次。
-- **登入過期**：登入大約 1 小時過期。mcp-check 目前不提供 `refresh_token`，過期後要在 Mac 上
-  重新登入，再重啟 mcp-check，它才會讀到新的登入。
+- **只選一道審核**：PR #12 另外做了一個 HTTP 版本（`foodpanda-mcp-http`，Mac 對話框／Telegram 確認），
+  目前**沒有合併**。如果之後合併，不要同時把 Grok Bot 接到兩邊，不然同一筆單要核准兩次。
+- **登入過期**：登入大約 1 小時過期。這個伺服器過期時會自動重讀 `~/.foodpanda-mcp/token.json`，
+  裡面有同一個帳號較新的登入就直接用，**不用重啟**。但 mcp-check 不提供 `refresh_token`，
+  所以要由別的方式重新登入、更新這個檔案。同一個瀏覽器設定檔（`browser-data/`）不能同時被兩個程序開啟，
+  所以在 mcp-check 執行中，用另一個程序登入很可能會失敗。目前可行的做法是：停掉 mcp-check，用一般 MCP client 呼叫 `refresh_token` 登入，
+  再啟動 mcp-check。這部分還沒解決，見 [handoff.md](handoff.md)。
 - **結果不明**：送出後沒收到明確回應時，這個伺服器會鎖住下一筆訂單；mcp-check 會把申請標成
   「結果待確認」。你在 foodpanda App 查過、在 mcp-check 手機 App 標記之後，下一筆才會解鎖。
 

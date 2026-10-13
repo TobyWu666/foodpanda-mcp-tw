@@ -37,7 +37,7 @@
 - 搜尋、連鎖分店、餐廳資訊、菜單、品項選項、購物車驗價改用台灣網站實際使用的 GraphQL 查詢與資料格式。
 - 付款只支援「已綁定的 LINE Pay」與「貨到付款（現金）」，其他方式一律明確報錯（見[付款方式](#付款方式)）。
 - 下單改為兩步，需要一次性確認碼（見[下單安全](#下單安全兩步下單)）。
-- 儲存的 token 會檢查區域和是否過期。
+- 儲存的 token 會檢查區域和是否過期；登入過期後會自動改用 `token.json` 裡同一個帳號較新的登入，不用重啟。
 
 `hk`、`ph` preset 仍然保留、可以載入，但瀏覽與購物車現在是照台灣網站的做法寫的，**不保證**能用在香港或菲律賓。
 
@@ -47,9 +47,11 @@
 |---|---|---|
 | 1 | 架構報告 | 完成 |
 | 2 | `tw` preset、登入、token 檢查 | 完成 |
-| 3 | 搜尋、菜單、品項選項、購物車驗價 | 進行中（尚未在真實網站上實測） |
-| 4 | 付款（LINE Pay／現金）與兩步下單 | 已實作，尚未在真實網站上實測 |
-| 5 | 測試與 README | 進行中 |
+| 3 | 搜尋、菜單、品項選項、購物車驗價 | 完成，2026-10-13 在真實網站上實測通過 |
+| 4 | 付款（LINE Pay／現金）與兩步下單 | 完成；現金與 LINE Pay 都實測到 `prepare_order` 為止。**還沒有真的下過單**，結帳成功的格式未知 |
+| 5 | 測試與 README | 完成 |
+
+要把它接到其他服務（例如 mcp-check、Grok Bot）的人，請先看 [docs/handoff.md](docs/handoff.md)。
 
 
 ## 需求
@@ -220,8 +222,18 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 讀取 token 的順序是：`token.json` → `FOODPANDA_SESSION_TOKEN` → 沒有 token。
 - `token.json` 只有在**區域相同**（例如都是 `https://tw.fd-api.com`）而且**沒過期**時才會使用。
   香港版存下的 token 不會被拿來打台灣的 API；沒記錄區域的舊 token 檔也不會用。
-- 過期的 token（JWT `exp`）會被忽略並在 stderr 說明原因；請重新呼叫 `refresh_token`。
+- 過期的 token 會被忽略並在 stderr 說明原因。台灣的登入沒有標準的 `exp`，而是用 `expires`（秒），**大約 1 小時就過期**。
 - 瀏覽器設定檔 `browser-data/` 會保留登入狀態與 PerimeterX 的通行 cookie。
+- `refresh_token` 只會接受**已登入帳號**的 token：擷取到的每個 token 都會先查一次 `/api/v5/customers`，
+  查不到帳號（例如訪客 token）就略過，繼續等你登入。
+
+執行中登入過期時：
+
+- 送出請求前發現 token 已過期，或 foodpanda 回 401/403 時，server 會重新讀 `token.json`
+  （只有檔案有變動時才讀）。如果裡面是**同一個帳號**、還沒過期、而且比現在的晚過期的登入，就改用它，並把那個請求重試**一次**。
+- 只接受同一個帳號（JWT 的 `user_id` 相同）。要換帳號只能用 `refresh_token`。
+- `place_order` 進行中如果換了登入，結帳**不會送出**，會回「login changed … nothing was sent」，請重新 `prepare_order`。
+- 結帳本身永遠不重試。stderr 只會寫一行固定文字，不會印出 token。
 
 沒有登入也可以**搜尋和看菜單**（這些是公開資料）；購物車與下單需要登入。（這是香港版的經驗，台灣站尚未驗證。）
 
@@ -238,7 +250,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 - 登入若要求簡訊或 e-mail 驗證碼，你可以在 `refresh_token` 打開的視窗裡直接手動輸入。
 - **不要**讓 AI 代你輸入密碼或驗證碼。
 - 香港版的經驗：用自動化工具（密碼管理器自動填入等）填 foodpanda 的驗證碼欄位會失敗，因為它是四個分開的單字元輸入框。
-- 台灣站的登入流程**還沒有實際跑過**，可能遇到的差異（例如會不會先發一個訪客 token）尚待第一次實測後補充。
+- 台灣站的登入已在 2026-10-13 實測過：存下的是帳號 token（不是訪客 token）。
 
 ## 付款方式
 
@@ -275,9 +287,13 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
    - `delivery_instructions`（選填，最多 300 字）：給外送員的備註
    - `previous_order_checked_in_app`（選填，true/false）：只在上一次 `place_order` 回報「狀態不明」之後使用，見下方
 
-   回傳完整訂單內容：品項、數量、選項、小計、外送費、總金額、付款方式、外送地址，以及一組**一次性確認碼**
-   `confirmation_code`（5 分鐘內有效）。
+   回傳完整訂單內容：品項、數量、選項、小計、外送費、服務費、總金額、付款方式、外送地址，以及一組**一次性確認碼**
+   `confirmation_code`（5 分鐘內有效）。小計低於餐廳最低消費時，會多一個 `small_order_fee`（小額訂單費）和說明；
+   如果還有總金額解釋不了的部分，會列在 `other_charges`。`get_cart`／`add_to_cart` 也會顯示這兩個欄位。
 2. **`place_order`**：**只收** `confirmation_code`，才會真的送出訂單（會扣款）。付款方式、地址、備註都已綁在確認碼裡，不能在這一步更改。
+   失敗時，錯誤訊息最後一行一定是下面其中一種，讓 AI 或審核工具分得清楚：
+   - `[checkout_sent: no] ...`：還沒送出，沒有下單。
+   - `[checkout_sent: unknown] ...`：可能已經下單，要先到 foodpanda app 查。
 
 確認碼的規則：
 
@@ -370,20 +386,21 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 
 因此：
 
-- 被擋過的瀏覽器設定檔會一直被擋，程式會自動清掉設定檔重試（最多 3 次）。
+- 被擋時，程式先只清掉 PerimeterX 自己的 cookie（`_px` 開頭）再試，**登入狀態會保留**；
+  還是被擋，最後才整個重置瀏覽器設定檔（這會登出），最多試 3 次。實測時每次啟動瀏覽器都會先被擋一次，這是正常的。
 - 連續太多請求也會被擋：請求之間至少間隔 `FOODPANDA_MIN_INTERVAL_MS`（預設 2 秒），
-  被擋時退避 45 秒、再 90 秒，然後重置設定檔重試。這些重試只用在瀏覽與購物車；**結帳（`place_order`）絕不重試**。
+  被擋時退避 45 秒、再 90 秒，然後清掉 PerimeterX cookie 重試。這些重試只用在瀏覽與購物車；**結帳（`place_order`）絕不重試**。
 - token 救不了被擋的瀏覽器；如果一直被擋（例如雲端機房 IP），用 `FOODPANDA_PROXY` 換一個出口。
 
 ## 已知限制
 
 1. **非官方 API，隨時可能失效。** 呼叫的是 foodpanda 網站內部 API，foodpanda 改版時端點、欄位、
    GraphQL hash 都可能改變而讓功能壞掉，也可能違反服務條款。請自負風險、只用自己的帳號。
-2. **尚未在真實網站上完整實測。** 台灣版的格式都是照實際錄下的網路流量比對，
-   測試使用遮蔽過個資的資料；第一次實際連線驗證（搜尋、菜單、購物車驗價，不下單）尚未完成。
+2. **只實測到 `prepare_order`。** 2026-10-13 在真實網站上，登入、搜尋、菜單、購物車驗價、付款方式、
+   `prepare_order`（現金與 LINE Pay）都通過了。單元測試使用遮蔽過個資的資料。
 3. **登入與二階段驗證。** 登入一定要有看得到的視窗並由你親自完成；不能由 AI 代填驗證碼。
-   台灣站的實際登入流程還沒跑過，訪客 token、JWT 內容等細節尚待確認。
-4. **購物車驗價與結帳尚未在台灣站實測。** 送出的格式照抓包組成，但 `cart/checkout` 從沒在台灣站真的送過（開發時刻意不下單）。
+   登入大約 1 小時過期，要重新登入（server 會自動改用 `token.json` 裡較新的同帳號登入）。
+4. **結帳尚未在台灣站實測。** 送出的格式照抓包組成，但 `cart/checkout` 從沒在台灣站真的送過（開發時刻意不下單）。
    第一次真實下單只會由帳號擁有者手動進行。在錄到台灣站真正的成功回應之前，第一筆訂單即使成功也很可能顯示「狀態不明」，
    之後要先到 app 確認，再帶 `previous_order_checked_in_app: true` 才能下下一單。
 5. **已綁定 LINE Pay 是否直接扣款、不跳轉，目前未知。** 結帳回應只要不是明確成功（包括要求跳轉），結果都會是「狀態不明，請到 app 確認」，
@@ -392,7 +409,7 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 7. **付款只支援已綁定的 LINE Pay 與現金。** 未綁定的 LINE Pay、信用卡等其他方式都會被明確拒絕。
 8. **外送地址必須先存在帳號裡。** 有多個已存地址時要在 `prepare_order` 指定 `address_id`。
 9. **實際扣款金額可能和 `prepare_order` 顯示的不同。** 外送費與總金額是用已存地址的座標計算的，
-   沒有帶入完整的已存地址資料，foodpanda 結帳時算出的金額可能有差。
+   沒有帶入完整的已存地址資料，foodpanda 結帳時算出的金額可能有差。實測時外送費在幾分鐘內就在 15 和 19 元之間變動過。
    **建議第一筆真實訂單用小額、現金付款**，並比對 `prepare_order` 的總金額和 foodpanda app 上的實際金額。
    結帳回應若報出不同的總金額或付款方式，結果會帶 `MISMATCH` 提醒。
 10. **PerimeterX。** 見上一節；headless 會被擋，雲端 IP 可能需要 proxy。
@@ -407,13 +424,17 @@ src/foodpanda-client.ts     API client（搜尋、菜單、購物車、結帳）
 src/tw-api.ts               台灣站的請求格式與回應解析（含付款與結帳）
 src/payment-method.ts       支援的付款方式（linepay、cash）與明確錯誤
 src/order-guard.ts          兩步下單確認碼
-src/token-manager.ts        token 儲存與瀏覽器登入
-src/token-check.ts          token 區域與過期檢查
+src/order-lock.ts           「狀態不明」後的鎖定檔
+src/place-order-failure.ts  place_order 錯誤的 [checkout_sent: ...] 結尾
+src/token-manager.ts        token 儲存、瀏覽器登入、重新讀取 token.json
+src/token-check.ts          token 區域與過期檢查（exp 或 expires）
 src/redact.ts               錯誤訊息與 log 的個資遮蔽
 src/server.ts               MCP tool 定義
 src/index.ts                stdio 進入點
 scripts/discover-hashes.mjs GraphQL persisted-query hash 擷取
 scripts/mask-capture.mjs    抓包資料個資遮蔽（產生 test fixture 用）
+docs/handoff.md             給接手串接的人：驗證過什麼、還沒驗證什麼
+docs/mcp-check.md           搭配 mcp-check 使用
 ```
 
 ```bash
