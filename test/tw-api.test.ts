@@ -238,31 +238,46 @@ test("calculate response gives the totals and per-line prices", () => {
   assert.equal(calc.total, 366);
   assert.deepEqual(calc.lines.map((l) => l.unitPrice), [3, 275]);
   assert.ok(calc.lines.every((l) => l.isAvailable));
-  // Captured above the minimum order: the parts add up, nothing extra to show.
+  // Captured above the minimum order: no small-order fee, the parts add up.
+  assert.equal(calc.smallOrderFee, 0);
   assert.equal(calc.otherCharges, 0);
   assert.deepEqual(calc.smallOrder, { minimum: 79, cap: 19 });
   assert.deepEqual(otherChargesOf(calc), {});
 });
 
-test("a total the parts do not explain is shown, with the small-order minimum when below it", () => {
-  // The live run's numbers (subtotal 60, delivery 15, service 5, total 99) on the captured shape.
+/** The captured response with the live run's below-minimum numbers (2026-10-13, run 2). */
+function belowMinimum(deliveryFee: number) {
   const resp = structuredClone(cart.response);
   resp.payment.subtotal = 60;
   resp.payment.service_fee = 5;
-  resp.payment.total = 99;
-  resp.expedition.selected_delivery_option.delivery_fee = 15;
-  const calc = parseCalculate(resp, cart.request.products);
-  assert.equal(calc.otherCharges, 19);
-  const shown = otherChargesOf(calc);
-  assert.equal(shown.other_charges, 19);
-  assert.match(shown.other_charges_note ?? "", /minimum order of 79 \(small-order fee cap 19\)/);
+  resp.payment.total = 60 + deliveryFee + 5 + 19;
+  resp.expedition.selected_delivery_option.delivery_fee = deliveryFee;
+  resp.small_order_fee.soft_minimum_order_value.fee = 19;
+  resp.minimum_order_value.fee = 19;
+  return resp;
+}
 
-  // Above the minimum, an unexplained amount is still shown, without guessing its name.
-  resp.payment.subtotal = 100;
-  resp.payment.total = 139;
-  const above = otherChargesOf(parseCalculate(resp, cart.request.products));
-  assert.equal(above.other_charges, 19);
-  assert.doesNotMatch(above.other_charges_note ?? "", /small-order/);
+test("the small-order fee is itemised from small_order_fee.soft_minimum_order_value.fee", () => {
+  for (const deliveryFee of [15, 19]) {
+    // A 19 delivery fee must not be mistaken for the 19 small-order fee: matched by field.
+    const calc = parseCalculate(belowMinimum(deliveryFee), cart.request.products);
+    assert.equal(calc.deliveryFee, deliveryFee);
+    assert.equal(calc.smallOrderFee, 19);
+    assert.equal(calc.otherCharges, 0, "minimum_order_value.fee repeats the same fee; not counted twice");
+    const shown = otherChargesOf(calc);
+    assert.equal(shown.small_order_fee, 19);
+    assert.match(shown.small_order_fee_note ?? "", /minimum order of 79/);
+    assert.equal(shown.other_charges, undefined);
+  }
+});
+
+test("a total the listed fees do not explain is still shown as other_charges", () => {
+  const resp = belowMinimum(15);
+  resp.payment.total += 3;
+  const shown = otherChargesOf(parseCalculate(resp, cart.request.products));
+  assert.equal(shown.small_order_fee, 19);
+  assert.equal(shown.other_charges, 3);
+  assert.match(shown.other_charges_note ?? "", /Not itemised/);
 });
 
 test("a line missing from the response is reported unavailable", () => {

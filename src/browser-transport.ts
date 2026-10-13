@@ -78,6 +78,8 @@ export interface DisplayDeps {
   socketExists?: (path: string) => boolean;
   config?: () => { headless: boolean; autoXvfb: boolean };
   pollMs?: number;
+  /** Pause between PerimeterX warm-up attempts (default 2s + 3s per attempt). */
+  challengeDelayMs?: (attempt: number) => number;
 }
 
 export class BrowserTransport {
@@ -215,7 +217,10 @@ export class BrowserTransport {
    *
    * A challenge verdict is sticky: an unsolved visit leaves PX cookies that mark the
    * profile as suspicious, and every later launch from that profile is challenged again.
-   * So a blocked attempt throws away the profile and retries with a clean identity.
+   * So a blocked attempt first drops only the PerimeterX cookies and retries; the login
+   * cookies stay, so the user is not logged out. Only when that is still blocked is the
+   * whole profile thrown away (the live run on 2026-10-13 saw one challenge per start, and
+   * wiping the profile each time meant logging in again every hour).
    */
   async warmUp(attempts: number = 3): Promise<void> {
     if (this.warmed) return;
@@ -249,8 +254,14 @@ export class BrowserTransport {
         `foodpanda-mcp: PerimeterX challenged ${cfg.webHost} (attempt ${attempt}/${attempts}, title: "${lastTitle}")`
       );
       if (attempt < attempts) {
-        await this.resetProfile();
-        await new Promise((r) => setTimeout(r, 2000 + attempt * 3000));
+        if (attempt < attempts - 1) {
+          await this.clearChallenge();
+        } else {
+          console.error("foodpanda-mcp: still challenged; resetting the browser profile (this logs out)");
+          await this.resetProfile();
+        }
+        const delay = this.deps.challengeDelayMs ?? ((n: number) => 2000 + n * 3000);
+        await new Promise((r) => setTimeout(r, delay(attempt)));
       }
     }
 
@@ -259,6 +270,21 @@ export class BrowserTransport {
         `(last page title: "${lastTitle}"). The block is on this network/identity. ` +
         `Set FOODPANDA_PROXY to egress elsewhere, or run the server on a network foodpanda serves.`
     );
+  }
+
+  /**
+   * Forget the PerimeterX verdict but keep the login: drop the PX cookies (named _px…,
+   * like the _px3 clearance cookie) from the open context and warm up again next time.
+   */
+  async clearChallenge(): Promise<void> {
+    this.warmed = false;
+    if (!this.context) return;
+    try {
+      await this.context.clearCookies({ name: /^_px/ });
+    } catch {
+      // An older Playwright without filtered clearCookies: fall back to a clean profile.
+      await this.resetProfile();
+    }
   }
 
   /** Drop the browser profile (cookies, PX verdicts, cached identity) and close the context. */
