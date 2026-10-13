@@ -20,9 +20,11 @@
 ## 還沒驗證的
 
 - **結帳（`place_order`）從來沒有真的送過。** foodpanda 收不收我們組的 `cart/checkout`、成功時回什麼格式，都不知道。
-  - 所以目前任何結帳回應都會被當成「狀態不明」：回 `[checkout_sent: unknown]`、清空購物車，
-    並在 `FOODPANDA_STATE_DIR/order-check-required.json` 鎖住下一筆訂單。要有人到 foodpanda app 確認過，
-    帶 `previous_order_checked_in_app: true` 呼叫 `prepare_order`，鎖才會解除。
+  - 判斷規則在 `src/tw-api.ts` 的 `parseCheckoutResponse`：回應裡**同時**有訂單編號、明確的成功狀態，
+    而且沒有任何待處理的跡象（跳轉、連結、pending 狀態等），才算成功。其他情況一律當成「狀態不明」：
+    回 `[checkout_sent: unknown]`、清空購物車，並在 `FOODPANDA_STATE_DIR/order-check-required.json` 鎖住下一筆訂單。
+    要有人到 foodpanda app 確認過，帶 `previous_order_checked_in_app: true` 呼叫 `prepare_order`，鎖才會解除。
+  - 因為還不知道台灣站成功時回什麼，**第一筆真實訂單即使成功，也很可能顯示「狀態不明」**。
   - 第一筆真實訂單要由帳號擁有者手動下，**小額、現金**，同時錄下結帳的請求和回應（遮蔽個資後）。
     之後才能寫出台灣站真正的成功判斷。
 - **綁定的 LINE Pay 結帳時會不會跳轉。** 如果要跳轉，結果一樣是「狀態不明」，不會改用現金。
@@ -30,16 +32,23 @@
   但需要有東西去更新這個檔案：
   - 抓包裡沒有 token 續期的請求。
   - 也還沒確認過：瀏覽器設定檔保留登入後，`refresh_token` 能不能不用重新輸入就拿到新的登入。
-  - 在 mcp-check 後面，`refresh_token` 不對外開放。同一個瀏覽器設定檔也不能同時被兩個程序開，
-    所以目前要停掉 mcp-check、用一般 MCP client 登入，再啟動 mcp-check。
+  - 在 mcp-check 後面，`refresh_token` 不對外開放。同一個瀏覽器設定檔（`browser-data/`）**很可能**不能同時被兩個程序開啟
+    （這是推測，還沒實測）。所以目前最保險的做法是停掉 mcp-check、用一般 MCP client 登入，再啟動 mcp-check。
 
 ## 接上 mcp-check 之前一定要處理的
 
 設定方式見 [mcp-check.md](mcp-check.md)。審核時在 mcp-check 發現兩個問題，**在開放任何公開網址之前要先修好**。
 這兩個都在 mcp-check 那邊，這個 repo 沒有改：
 
-1. 登入的次數限制是用 `X-Forwarded-For` 來分辨來源。
-2. `submit_order` 可以被設成「allow」（自動核准）。
+1. **登入的次數限制看的是 `X-Forwarded-For` 的第一個值，而這個值是連線的人自己填的。**
+   - `TRUST_PROXY=1` 時：任何人換一個值就能重來，可以**無限次猜手機 App 的登入密碼**。
+   - `TRUST_PROXY=0` 時：任何人猜錯 5 次，就能讓擁有者 **15 分鐘不能登入**。
+   - 修好之前，在通道後面請用 `TRUST_PROXY=0`。代價是別人可以把擁有者暫時鎖在外面，但密碼不會被無限次猜。
+2. **手機 App 可以把 `submit_order` 設成 allow。** 設了之後，每一筆訂單都會自動核准，**沒有人確認就下單**。
+   修好之前，**絕對不要**把 `submit_order` 改成 allow。
+
+在這兩個修好、而且帳號擁有者決定要下第一筆真訂單之前，`FOODPANDA_TW_REAL_ORDERS` 保持 `0`（不設也一樣是關閉），
+這樣 `submit_order` 不會真的下單。
 
 ## 另一個做法：PR #12（沒有合併）
 
