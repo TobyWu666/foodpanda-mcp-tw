@@ -8,39 +8,51 @@ import type {
   OrderResult,
   AddToCartInput,
   CartProductPayload,
-  CartToppingPayload,
   CartVendorPayload,
-  CartCalculateRequest,
   ToppingGroup,
-  ScheduleEntry,
   CustomerProfile,
   DeliveryAddress,
-  PaymentMethodInfo,
-  OrderPreview,
 } from "./types.js";
+import { OrderConfirmationError, OrderGuard, type OrderSnapshot } from "./order-guard.js";
+import {
+  type PaymentMethodChoice,
+  UnsupportedPaymentMethodError,
+  parsePaymentMethodChoice,
+} from "./payment-method.js";
 
-import { getRegionConfig, requireHash } from "./config.js";
+import { join } from "node:path";
+import { getRegionConfig, requireHash, stateDir } from "./config.js";
+import { OrderCheckLockStore } from "./order-lock.js";
 import { browserTransport } from "./browser-transport.js";
 import { redactForLog } from "./redact.js";
-
-/**
- * Region-specific endpoints and hashes now come from config.ts.
- * Presets: FOODPANDA_COUNTRY=hk (default) | ph, plus per-key env overrides.
- */
-const GRAPHQL_SEARCH_HASH = () => requireHash("search");
-const GRAPHQL_VENDOR_LIST_HASH = () => requireHash("vendor_list");
-
-/** GraphQL `languageId` variable, left out when the region's id is not known. */
-function languageIdVariable(): { languageId?: number } {
-  const id = getRegionConfig().languageId;
-  return id !== null ? { languageId: id } : {};
-}
-
-/** REST `&language_id=` query parameter, left out when the region's id is not known. */
-function languageIdParam(): string {
-  const id = getRegionConfig().languageId;
-  return id !== null ? `&language_id=${id}` : "";
-}
+import {
+  type GraphqlOperation,
+  type RestaurantPage,
+  buildCalculateRequest,
+  buildCartProduct,
+  cartItemsOf,
+  chainOutletsOperation,
+  parseCalculate,
+  parseChainOutlets,
+  parseProductChoices,
+  parseRestaurantPage,
+  parseSearchResults,
+  productOperation,
+  restaurantDetailsOperation,
+  searchOperation,
+  selectChoices,
+  checkQuantity,
+  type PaymentOption,
+  type PurchaseIntent,
+  CheckoutStatusUnknownError,
+  buildCheckoutRequest,
+  checkoutMismatches,
+  checkCalculatedPayment,
+  parseCheckoutResponse,
+  parsePurchaseIntent,
+  purchaseIntentRequest,
+  withPaymentMethod,
+} from "./tw-api.js";
 
 /** Checkout must name the right entity; never fall back to another country's id. */
 function requireGlobalEntityId(): string {
@@ -53,69 +65,81 @@ function requireGlobalEntityId(): string {
   return cfg.globalEntityId;
 }
 
-/** Shared shape for vendor menu data from the REST API */
-interface VendorMenuData {
-  menu_categories: Array<{
-    name: string;
-    products: Array<{
-      id: number;
-      code: string;
-      name: string;
-      description: string;
-      file_path: string;
-      is_sold_out: boolean;
-      product_variations: Array<{
-        id: number;
-        code: string;
-        price: number;
-        topping_ids: number[];
-      }>;
-    }>;
-  }>;
-  toppings: Record<
-    string,
-    {
-      id: number;
-      name: string;
-      quantity_minimum: number;
-      quantity_maximum: number;
-      options: Array<{
-        id: number;
-        product_id: number;
-        name: string;
-        price: number;
-      }>;
-    }
-  >;
-}
-
-/** Shape expected by cacheVendorMenu */
-interface VendorMenuInput {
-  code: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  menus: VendorMenuData[];
-}
-
-/**
- * Cached menu data per vendor, so we can build cart payloads
- * without re-fetching the menu every time.
- */
-interface CachedVendorMenu {
-  vendorCode: string;
-  vendorName: string;
-  vendorLatitude: number;
-  vendorLongitude: number;
-  categories: MenuCategory[];
-  /** Flat lookup: product code -> MenuItem */
+/** A restaurant page (details + menu) kept so cart payloads can be built without refetching. */
+interface CachedVendorMenu extends RestaurantPage {
   productsByCode: Map<string, MenuItem>;
-  /** Flat lookup: product id -> MenuItem */
   productsById: Map<number, MenuItem>;
-  /** Flat lookup: topping option id -> { id, name, price } */
-  toppingOptionsById: Map<number, { id: number; name: string; price: number }>;
-  /** Timestamp when this cache entry was created */
+  /** Choice groups per `${productId}:${variationId}`, loaded on demand. */
+  choiceGroups: Map<string, ToppingGroup[]>;
   cachedAt: number;
+}
+
+/** Menus change during the day (breakfast/regular menus); refetch after this long. */
+const MENU_CACHE_MS = 10 * 60 * 1000;
+
+/** In the state dir: present while an order's outcome is unknown and the user has not checked the app. */
+export const ORDER_CHECK_LOCK_FILE = "order-check-required.json";
+
+/** Raw HTTP, injectable so tests can run the whole flow without the network. */
+export type HttpFunction = (
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string }
+) => Promise<{ status: number; ok: boolean; text: string }>;
+
+export interface FoodpandaClientOptions {
+  /** Replaces the network (fetch or browser transport) and the request throttle. */
+  http?: HttpFunction;
+  guard?: OrderGuard;
+  /** Where the "check the app first" lock is kept; null keeps it in memory. Default: the state dir. */
+  lockFile?: string | null;
+}
+
+/** What prepareOrder locked; place_order rebuilds the order from it. */
+interface PreparedOrder {
+  option: PaymentOption;
+  addressId: number;
+  deliveryInstructions: string;
+}
+
+export interface PreparedOrderSummary {
+  confirmation_code: string;
+  expires_at: string;
+  restaurant: { id: string; name: string };
+  items: Array<{
+    name: string;
+    quantity: number;
+    options: string[];
+    special_instructions: string;
+    total_price: number;
+  }>;
+  subtotal: number;
+  delivery_fee: number;
+  service_fee: number;
+  total: number;
+  currency: string;
+  payment_method: { payment_method: PaymentMethodChoice; label: string };
+  delivery_address: { id: number; label: string | null; address: string };
+  delivery_instructions: string;
+}
+
+/** Never matches a real order; used only to let the guard report a missing or stale code. */
+const EMPTY_SNAPSHOT: OrderSnapshot = {
+  customer_id: "",
+  restaurant_id: "",
+  items: [],
+  subtotal: 0,
+  delivery_fee: 0,
+  service_fee: 0,
+  total: 0,
+  payment_method: "cash",
+  address: { id: 0, latitude: 0, longitude: 0, text: "" },
+  delivery_instructions: "",
+};
+
+function describeAddresses(addresses: DeliveryAddress[]): string {
+  return addresses
+    .map((a) => `- address_id ${a.id}: ${a.label ? `${a.label}, ` : ""}${a.formatted_customer_address ?? ""}`)
+    .join("\n");
 }
 
 export class FoodpandaClient {
@@ -141,7 +165,28 @@ export class FoodpandaClient {
   // Menu cache keyed by vendor code
   private menuCache: Map<string, CachedVendorMenu> = new Map();
 
-  constructor(sessionToken: string | null, latitude: number, longitude: number) {
+  // Two-step order state
+  private readonly guard: OrderGuard;
+  private prepared: PreparedOrder | null = null;
+  /** Set when a checkout was sent but its outcome is unknown; survives restarts. */
+  private readonly orderCheckLock: OrderCheckLockStore;
+  private readonly http: HttpFunction | undefined;
+
+  constructor(
+    sessionToken: string | null,
+    latitude: number,
+    longitude: number,
+    options: FoodpandaClientOptions = {}
+  ) {
+    this.http = options.http;
+    this.orderCheckLock = new OrderCheckLockStore(
+      options.lockFile !== undefined
+        ? options.lockFile
+        : process.env.NODE_TEST_CONTEXT
+          ? null // tests never write to the real state dir
+          : join(stateDir(), ORDER_CHECK_LOCK_FILE)
+    );
+    this.guard = options.guard ?? new OrderGuard();
     this.sessionToken = sessionToken;
     this.latitude = latitude;
     this.longitude = longitude;
@@ -181,6 +226,10 @@ export class FoodpandaClient {
    * Re-extracts the customer code from the new JWT.
    */
   public updateSessionToken(token: string): void {
+    // A different login may be a different account: no prepared order survives it.
+    this.guard.invalidate();
+    this.prepared = null;
+    this.cachedCustomerProfile = null;
     this.sessionToken = token;
     this.customerCode = this.extractCustomerCode(token);
   }
@@ -231,6 +280,11 @@ export class FoodpandaClient {
     url: string,
     init: { method?: string; headers?: Record<string, string>; body?: string } = {}
   ): Promise<{ status: number; ok: boolean; text: string }> {
+    if (this.http) return this.http(url, init);
+    if (process.env.NODE_TEST_CONTEXT) {
+      // Under node --test every client must get a fake http; never reach foodpanda from a test.
+      throw new Error(`Network access in a test (no http injected): ${url}`);
+    }
     await this.throttle();
     const cfg = getRegionConfig();
     if (!cfg.browserTransport) {
@@ -308,10 +362,8 @@ export class FoodpandaClient {
     return this.withPerimeterXRetry(() => this.restRequestOnce<T>(path, options));
   }
 
-  private async graphqlRequest<T>(body: object, displayContext: string = "SEARCH"): Promise<T> {
-    return this.withPerimeterXRetry(() =>
-      this.graphqlRequestOnce<T>(body, displayContext)
-    );
+  private async graphqlRequest<T>(op: GraphqlOperation): Promise<T> {
+    return this.withPerimeterXRetry(() => this.graphqlRequestOnce<T>(op));
   }
 
   private async restRequestOnce<T>(
@@ -349,7 +401,7 @@ export class FoodpandaClient {
     return JSON.parse(result.text) as T;
   }
 
-  private async graphqlRequestOnce<T>(body: object, displayContext: string = "SEARCH"): Promise<T> {
+  private async graphqlRequestOnce<T>(op: GraphqlOperation): Promise<T> {
     const cfg = getRegionConfig();
     const url = `${cfg.apiBase}/graphql`;
     const result = await this.httpRequest(url, {
@@ -360,12 +412,16 @@ export class FoodpandaClient {
         "customer-code": this.customerCode,
         "customer-latitude": String(this.latitude),
         "customer-longitude": String(this.longitude),
-        "display-context": displayContext,
+        "display-context": op.displayContext,
+        "x-apollo-operation-name": op.name,
+        "apollographql-client-name": "web",
         platform: "web",
+        "x-platform": "web",
         locale: cfg.locale,
+        ...(cfg.languageId !== null ? { "x-pd-language-id": String(cfg.languageId) } : {}),
         ...(cfg.globalEntityId ? { "x-global-entity-id": cfg.globalEntityId } : {}),
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(op.body),
     });
 
     this.assertNotPerimeterX(url, result.status, result.text);
@@ -380,7 +436,28 @@ export class FoodpandaClient {
         `Foodpanda GraphQL error (${result.status}): ${redactForLog(result.text).slice(0, 500)}`
       );
     }
-    return JSON.parse(result.text) as T;
+    const parsed = JSON.parse(result.text) as { data?: unknown; errors?: Array<{ message?: string }> };
+    if (parsed.errors?.length && !parsed.data) {
+      const messages = parsed.errors.map((e) => e.message || "unknown error").join("; ");
+      if (/PersistedQueryNotFound/i.test(messages)) {
+        throw new Error(
+          `foodpanda no longer knows the ${op.name} query hash (its web app was probably updated). ` +
+            "Harvest the new hash with scripts/discover-hashes.mjs and set the matching FOODPANDA_GQL_* env var."
+        );
+      }
+      throw new Error(`Foodpanda GraphQL error in ${op.name}: ${redactForLog(messages).slice(0, 500)}`);
+    }
+    return parsed as T;
+  }
+
+  private where() {
+    const cfg = getRegionConfig();
+    return {
+      latitude: this.latitude,
+      longitude: this.longitude,
+      locale: cfg.locale,
+      languageId: cfg.languageId,
+    };
   }
 
   // ----------------------------------------------------------------
@@ -392,140 +469,20 @@ export class FoodpandaClient {
     cuisine?: string,
     limit?: number
   ): Promise<Restaurant[]> {
-    const body = {
-      extensions: {
-        persistedQuery: {
-          sha256Hash: GRAPHQL_SEARCH_HASH(),
-          version: 1,
-        },
-      },
-      variables: {
-        searchResultsParams: {
-          query,
-          latitude: this.latitude,
-          longitude: this.longitude,
-          locale: getRegionConfig().locale,
-          ...languageIdVariable(),
-          expeditionType: "DELIVERY",
-          customerType: "B2C",
-          verticalTypes: ["RESTAURANTS"],
-        },
-        skipQueryCorrection: true,
-      },
-    };
-
-    interface GqlResponse {
-      data: {
-        searchPage: {
-          components: Array<{
-            vendorData?: {
-              code: string;
-              name: string;
-              availability: {
-                status: string;
-                distanceInMeters: number;
-              };
-              vendorRating: {
-                value: number;
-                count: number;
-              };
-              dynamicPricing: {
-                deliveryFee: { total: number };
-                minimumOrderValue: { total: number };
-              };
-              timeEstimations: {
-                delivery: {
-                  duration: {
-                    lowerLimitInMinutes: number;
-                    upperLimitInMinutes: number;
-                  };
-                } | null;
-              };
-              vendorTile?: {
-                vendorInfo?: Array<
-                  Array<{
-                    id: string;
-                    elements: Array<{
-                      text: string;
-                    }>;
-                  }>
-                >;
-              };
-            };
-            vendorChainData?: {
-              code: string;
-              name: string;
-            };
-            totalChainVendors?: number;
-          }>;
-        };
-      };
-    }
-
-    const result = await this.graphqlRequest<GqlResponse>(body);
-
-    const components = result.data?.searchPage?.components || [];
-    const restaurants: Restaurant[] = [];
-
-    for (const comp of components) {
-      const v = comp.vendorData;
-      if (!v) continue;
-
-      // Extract cuisines from vendorTile
-      const cuisines: string[] = [];
-      if (v.vendorTile?.vendorInfo) {
-        for (const row of v.vendorTile.vendorInfo) {
-          for (const group of row) {
-            if (group.id === "VENDOR_INFO_CUISINES" && group.elements) {
-              for (const el of group.elements) {
-                if (el.text) cuisines.push(el.text);
-              }
-            }
-          }
-        }
-      }
-
-      const delivery = v.timeEstimations?.delivery?.duration;
-      const deliveryTime = delivery
-        ? `${delivery.lowerLimitInMinutes}-${delivery.upperLimitInMinutes} min`
-        : "N/A";
-
-      const restaurant: Restaurant = {
-        id: v.code,
-        name: v.name,
-        cuisine: cuisines,
-        rating: v.vendorRating?.value ?? 0,
-        review_count: v.vendorRating?.count ?? 0,
-        delivery_fee: v.dynamicPricing?.deliveryFee?.total ?? 0,
-        delivery_time: deliveryTime,
-        minimum_order: v.dynamicPricing?.minimumOrderValue?.total ?? 0,
-        distance_km: Math.round((v.availability?.distanceInMeters ?? 0) / 100) / 10,
-        is_open: v.availability?.status === "OPEN",
-      };
-
-      // Attach chain data if this vendor belongs to a chain
-      if (comp.vendorChainData?.code) {
-        restaurant.chain_code = comp.vendorChainData.code;
-        restaurant.chain_name = comp.vendorChainData.name;
-      }
-      if (comp.totalChainVendors && comp.totalChainVendors > 1) {
-        restaurant.total_outlets = comp.totalChainVendors;
-      }
-
-      restaurants.push(restaurant);
-    }
+    const result = await this.graphqlRequest<unknown>(
+      searchOperation(requireHash("search"), query, this.where())
+    );
+    let restaurants = parseSearchResults(result);
 
     // Client-side cuisine filter
-    let filtered = restaurants;
     if (cuisine) {
       const cuisineLower = cuisine.toLowerCase();
-      filtered = restaurants.filter((r) =>
+      restaurants = restaurants.filter((r) =>
         r.cuisine.some((c) => c.toLowerCase().includes(cuisineLower))
       );
     }
 
-    const maxResults = limit ?? 10;
-    return filtered.slice(0, maxResults);
+    return restaurants.slice(0, limit ?? 10);
   }
 
   // ----------------------------------------------------------------
@@ -533,327 +490,108 @@ export class FoodpandaClient {
   // ----------------------------------------------------------------
 
   async getChainOutlets(chainCode: string): Promise<Restaurant[]> {
-    const body = {
-      extensions: {
-        persistedQuery: {
-          sha256Hash: GRAPHQL_VENDOR_LIST_HASH(),
-          version: 1,
-        },
-      },
-      variables: {
-        input: {
-          expeditionType: "DELIVERY",
-          latitude: this.latitude,
-          longitude: this.longitude,
-          locale: getRegionConfig().locale,
-          customerType: "B2C",
-          ...languageIdVariable(),
-          page: "CHAIN_LISTING_PAGE",
-          availabilityFilters: {
-            chainCodes: [chainCode],
-          },
-        },
-      },
-    };
-
-    interface ChainGqlResponse {
-      data: {
-        vendorListingPage: {
-          components: Array<{
-            vendorData?: {
-              code: string;
-              name: string;
-              availability: {
-                status: string;
-                distanceInMeters: number;
-              };
-              vendorRating: {
-                value: number;
-                count: number;
-              };
-              dynamicPricing: {
-                deliveryFee: { total: number };
-                minimumOrderValue: { total: number };
-              };
-              timeEstimations: {
-                delivery: {
-                  duration: {
-                    lowerLimitInMinutes: number;
-                    upperLimitInMinutes: number;
-                  };
-                } | null;
-              };
-              vendorTile?: {
-                vendorInfo?: Array<
-                  Array<{
-                    id: string;
-                    elements: Array<{
-                      text: string;
-                    }>;
-                  }>
-                >;
-              };
-            };
-          }>;
-        };
-      };
-    }
-
-    const result = await this.graphqlRequest<ChainGqlResponse>(body, "rlp");
-
-
-    const components = result.data?.vendorListingPage?.components || [];
-    const restaurants: Restaurant[] = [];
-
-    for (const comp of components) {
-      const v = comp.vendorData;
-      if (!v) continue;
-
-      // Extract cuisines from vendorTile
-      const cuisines: string[] = [];
-      if (v.vendorTile?.vendorInfo) {
-        for (const row of v.vendorTile.vendorInfo) {
-          for (const group of row) {
-            if (group.id === "VENDOR_INFO_CUISINES" && group.elements) {
-              for (const el of group.elements) {
-                if (el.text) cuisines.push(el.text);
-              }
-            }
-          }
-        }
-      }
-
-      const delivery = v.timeEstimations?.delivery?.duration;
-      const deliveryTime = delivery
-        ? `${delivery.lowerLimitInMinutes}-${delivery.upperLimitInMinutes} min`
-        : "N/A";
-
-      restaurants.push({
-        id: v.code,
-        name: v.name,
-        cuisine: cuisines,
-        rating: v.vendorRating?.value ?? 0,
-        review_count: v.vendorRating?.count ?? 0,
-        delivery_fee: v.dynamicPricing?.deliveryFee?.total ?? 0,
-        delivery_time: deliveryTime,
-        minimum_order: v.dynamicPricing?.minimumOrderValue?.total ?? 0,
-        distance_km: Math.round((v.availability?.distanceInMeters ?? 0) / 100) / 10,
-        is_open: v.availability?.status === "OPEN",
-        chain_code: chainCode,
-      });
-    }
-
-    return restaurants;
+    const result = await this.graphqlRequest<unknown>(
+      chainOutletsOperation(requireHash("vendor_list"), chainCode, this.where())
+    );
+    return parseChainOutlets(result);
   }
 
   // ----------------------------------------------------------------
-  // 2. Get Restaurant Details
+  // 2. Get Restaurant Details / 3. Get Menu
   // ----------------------------------------------------------------
 
-  async getRestaurantDetails(
-    vendorCode: string
-  ): Promise<RestaurantDetails> {
-    const path =
-      `/api/v5/vendors/${encodeURIComponent(vendorCode)}` +
-      `?include=menus,bundles,multiple_discounts` +
-      `${languageIdParam()}&opening_type=delivery&basket_currency=${getRegionConfig().currency}` +
-      `&latitude=${this.latitude}&longitude=${this.longitude}`;
-
-    interface VendorResponse {
-      data: {
-        code: string;
-        name: string;
-        address: string;
-        rating: number;
-        review_number: number;
-        cuisines: Array<{ name: string; main: boolean }>;
-        minimum_order_amount: number;
-        minimum_delivery_fee: number;
-        delivery_duration_range?: {
-          lower_limit_in_minutes: number;
-          upper_limit_in_minutes: number;
-        };
-        dynamic_pricing?: {
-          delivery_fee?: { original: number };
-          service_fee?: { total: number };
-        };
-        metadata?: { is_delivery_available: boolean };
-        schedules: ScheduleEntry[];
-        description: string;
-        hero_image: string;
-        logo: string;
-        latitude: number;
-        longitude: number;
-        distance: number;
-        menus?: VendorMenuData[];
-      };
-    }
-
-    const result = await this.restRequest<VendorResponse>(path);
-    const v = result.data;
-
-    const cuisines = (v.cuisines || []).map((c) => c.name);
-    const dr = v.delivery_duration_range;
-    const deliveryTime = dr
-      ? `${dr.lower_limit_in_minutes}-${dr.upper_limit_in_minutes} min`
-      : "N/A";
-
-    // Also cache the menu data while we have it
-    if (v.menus && v.menus.length > 0) {
-      this.cacheVendorMenu(v as VendorMenuInput);
-    }
-
-    return {
-      id: v.code,
-      name: v.name,
-      cuisine: cuisines,
-      rating: v.rating ?? 0,
-      review_count: v.review_number ?? 0,
-      delivery_fee: v.minimum_delivery_fee ?? 0,
-      delivery_time: deliveryTime,
-      minimum_order: v.minimum_order_amount ?? 0,
-      distance_km: Math.round((v.distance ?? 0) * 10) / 10,
-      is_open: v.metadata?.is_delivery_available ?? false,
-      address: v.address ?? "",
-      description: v.description ?? "",
-      hero_image: v.hero_image ?? "",
-      logo: v.logo ?? "",
-      opening_hours: (v.schedules || []).map((s) => ({
-        weekday: s.weekday,
-        opening_type: s.opening_type,
-        opening_time: s.opening_time,
-        closing_time: s.closing_time,
-      })),
-      is_delivery_available: v.metadata?.is_delivery_available ?? false,
-    };
-  }
-
-  // ----------------------------------------------------------------
-  // 3. Get Menu
-  // ----------------------------------------------------------------
-
-  async getMenu(vendorCode: string): Promise<MenuCategory[]> {
-    // Check cache first (15 min TTL)
-    const CACHE_TTL_MS = 15 * 60 * 1000;
+  /** One GetRestaurantDetailsPage call gives both the details and the menu; cached per vendor. */
+  private async loadRestaurant(vendorCode: string, fresh = false): Promise<CachedVendorMenu> {
     const cached = this.menuCache.get(vendorCode);
-    if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
-      return cached.categories;
-    }
+    if (cached && !fresh && Date.now() - cached.cachedAt < MENU_CACHE_MS) return cached;
 
-    // Fetch via the vendor details endpoint (includes menus)
-    const path =
-      `/api/v5/vendors/${encodeURIComponent(vendorCode)}` +
-      `?include=menus,bundles,multiple_discounts` +
-      `${languageIdParam()}&opening_type=delivery&basket_currency=${getRegionConfig().currency}` +
-      `&latitude=${this.latitude}&longitude=${this.longitude}`;
-
-    interface VendorMenuResponse {
-      data: VendorMenuInput;
-    }
-
-    const result = await this.restRequest<VendorMenuResponse>(path);
-    this.cacheVendorMenu(result.data);
-
-    const cached2 = this.menuCache.get(vendorCode);
-    return cached2 ? cached2.categories : [];
-  }
-
-  /**
-   * Parse and cache menu data from a vendor API response.
-   */
-  private cacheVendorMenu(vendorData: VendorMenuInput): void {
-    if (!vendorData.menus || vendorData.menus.length === 0) return;
-
-    const menu = vendorData.menus[0];
-    const toppingsDict = menu.toppings || {};
+    const result = await this.graphqlRequest<unknown>(
+      restaurantDetailsOperation(requireHash("restaurant_details"), vendorCode)
+    );
+    const page = parseRestaurantPage(result);
     const productsByCode = new Map<string, MenuItem>();
     const productsById = new Map<number, MenuItem>();
-    const toppingOptionsById = new Map<
-      number,
-      { id: number; name: string; price: number }
-    >();
-
-    // Build flat topping option lookup
-    for (const group of Object.values(toppingsDict)) {
-      for (const opt of group.options || []) {
-        toppingOptionsById.set(opt.id, {
-          id: opt.id,
-          name: opt.name,
-          price: opt.price,
-        });
+    for (const cat of page.categories) {
+      for (const item of cat.items) {
+        productsByCode.set(item.code, item);
+        productsById.set(item.id, item);
       }
     }
-
-    const categories: MenuCategory[] = (menu.menu_categories || []).map(
-      (cat) => {
-        const items: MenuItem[] = (cat.products || []).map((prod) => {
-          const variation = prod.product_variations?.[0];
-
-          // Resolve topping groups for this product variation
-          const toppingGroups: ToppingGroup[] = [];
-          if (variation?.topping_ids) {
-            for (const tId of variation.topping_ids) {
-              const group = toppingsDict[String(tId)];
-              if (group) {
-                toppingGroups.push({
-                  id: group.id,
-                  name: group.name,
-                  quantity_minimum: group.quantity_minimum,
-                  quantity_maximum: group.quantity_maximum,
-                  options: (group.options || []).map((opt) => ({
-                    id: opt.id,
-                    product_id: opt.product_id,
-                    name: opt.name,
-                    price: opt.price,
-                  })),
-                });
-              }
-            }
-          }
-
-          // Replace %s placeholder in image URL with 300
-          const imageUrl = prod.file_path
-            ? prod.file_path.replace("%s", "300")
-            : "";
-
-          const item: MenuItem = {
-            id: prod.id,
-            code: prod.code,
-            name: prod.name,
-            description: prod.description || "",
-            price: variation?.price ?? 0,
-            image_url: imageUrl,
-            is_sold_out: prod.is_sold_out ?? false,
-            variation: variation
-              ? {
-                  id: variation.id,
-                  code: variation.code,
-                  price: variation.price,
-                }
-              : { id: 0, code: "", price: 0 },
-            topping_groups: toppingGroups,
-          };
-
-          productsByCode.set(prod.code, item);
-          productsById.set(prod.id, item);
-          return item;
-        });
-
-        return { name: cat.name, items };
-      }
-    );
-
-    this.menuCache.set(vendorData.code, {
-      vendorCode: vendorData.code,
-      vendorName: vendorData.name,
-      vendorLatitude: vendorData.latitude,
-      vendorLongitude: vendorData.longitude,
-      categories,
+    const entry: CachedVendorMenu = {
+      ...page,
       productsByCode,
       productsById,
-      toppingOptionsById,
+      choiceGroups: new Map(),
       cachedAt: Date.now(),
-    });
+    };
+    this.menuCache.set(vendorCode, entry);
+    if (page.details.id !== vendorCode) this.menuCache.set(page.details.id, entry);
+    return entry;
+  }
+
+  async getRestaurantDetails(vendorCode: string): Promise<RestaurantDetails> {
+    // Opening state matters (preview checks it), so always ask foodpanda.
+    return (await this.loadRestaurant(vendorCode, true)).details;
+  }
+
+  async getMenu(vendorCode: string): Promise<MenuCategory[]> {
+    return (await this.loadRestaurant(vendorCode)).categories;
+  }
+
+  private findItem(menu: CachedVendorMenu, itemId: string): MenuItem | undefined {
+    return menu.productsByCode.get(itemId) ?? menu.productsById.get(Number(itemId));
+  }
+
+  private pickVariation(item: MenuItem, variationId?: string) {
+    if (!variationId) return item.variation;
+    const found = (item.variations ?? [item.variation]).find(
+      (v) => String(v.id) === String(variationId) || v.code === variationId
+    );
+    if (!found) {
+      throw new Error(
+        `Variation "${variationId}" is not a variation of "${item.name}". ` +
+          `Variations: ${(item.variations ?? [item.variation]).map((v) => `${v.id} (${v.price})`).join(", ")}`
+      );
+    }
+    return found;
+  }
+
+  /** Choice groups (options, add-ons) of one product variation, via RestaurantProductQuery. */
+  private async loadChoiceGroups(
+    menu: CachedVendorMenu,
+    item: MenuItem,
+    variationId: number
+  ): Promise<ToppingGroup[]> {
+    const key = `${item.id}:${variationId}`;
+    const cached = menu.choiceGroups.get(key);
+    if (cached) return cached;
+    if (!item.is_customizable) {
+      menu.choiceGroups.set(key, []);
+      return [];
+    }
+    if (!menu.menuId) throw new Error(`No menu id for ${menu.details.name}; reload the menu.`);
+    const result = await this.graphqlRequest<unknown>(
+      productOperation(requireHash("product"), menu.details.id, item.id, menu.menuId)
+    );
+    const groups = parseProductChoices(result, variationId);
+    menu.choiceGroups.set(key, groups);
+    return groups;
+  }
+
+  async getItemDetails(
+    vendorCode: string,
+    itemId: string,
+    variationId?: string
+  ): Promise<{ category: string; item: MenuItem }> {
+    const menu = await this.loadRestaurant(vendorCode);
+    const item = this.findItem(menu, itemId);
+    if (!item) {
+      throw new Error(`Item "${itemId}" not found in menu for restaurant "${vendorCode}".`);
+    }
+    const variation = this.pickVariation(item, variationId);
+    const groups = await this.loadChoiceGroups(menu, item, variation.id);
+    const category = menu.categories.find((c) => c.items.includes(item))?.name ?? "";
+    return { category, item: { ...item, variation, price: variation.price, topping_groups: groups } };
   }
 
   // ----------------------------------------------------------------
@@ -864,114 +602,73 @@ export class FoodpandaClient {
     vendorCode: string,
     items: AddToCartInput[]
   ): Promise<Cart> {
-    // Ensure we have the menu cached for this vendor
-    let cached = this.menuCache.get(vendorCode);
-    if (!cached) {
-      await this.getMenu(vendorCode);
-      cached = this.menuCache.get(vendorCode);
-      if (!cached) {
+    // Any change to the cart voids a prepared order, even if this one fails part way.
+    this.guard.invalidate();
+    this.prepared = null;
+    const menu = await this.loadRestaurant(vendorCode);
+
+    // Build every line first, so a bad item leaves the cart untouched.
+    const lines: CartProductPayload[] = [];
+    for (const input of items) {
+      const product = this.findItem(menu, input.item_id);
+      if (!product) {
         throw new Error(
-          `Could not load menu for vendor ${vendorCode}. The restaurant may not exist or may be unavailable.`
+          `Item "${input.item_id}" not found in menu for ${menu.details.name}. Use get_menu to see available items.`
         );
+      }
+      if (product.is_sold_out) throw new Error(`"${product.name}" is sold out.`);
+      const variation = this.pickVariation(product, input.variation_id);
+      const groups = await this.loadChoiceGroups(menu, product, variation.id);
+      const choices = selectChoices(product.name, groups, input.topping_ids ?? []);
+      lines.push(
+        buildCartProduct(product, variation, choices, input.quantity, input.special_instructions || "")
+      );
+    }
+
+    // Merging into an existing line must not take it past the per-line limit.
+    const sameLine = (a: CartProductPayload, b: CartProductPayload) =>
+      a.id === b.id &&
+      a.variation_id === b.variation_id &&
+      a.special_instructions === b.special_instructions &&
+      JSON.stringify(a.toppings) === JSON.stringify(b.toppings);
+    const switching = !!this.cartVendor && this.cartVendor.code !== menu.details.id;
+    const merged: CartProductPayload[] = (switching ? [] : this.cartProducts).map((p) => ({ ...p }));
+    for (const payload of lines) {
+      const existing = merged.find((p) => sameLine(p, payload));
+      if (existing) {
+        existing.quantity += payload.quantity;
+        checkQuantity(existing.quantity);
+      } else {
+        merged.push({ ...payload });
       }
     }
 
     // If switching vendors, clear the cart
-    if (this.cartVendor && this.cartVendor.code !== vendorCode) {
+    if (switching) {
       this.clearCart();
     }
 
-    // Set vendor info
     this.cartVendor = {
-      code: vendorCode,
-      latitude: cached.vendorLatitude,
-      longitude: cached.vendorLongitude,
+      code: menu.details.id,
+      latitude: menu.latitude,
+      longitude: menu.longitude,
       marketplace: false,
       vertical: "restaurants",
     };
-    this.cartVendorName = cached.vendorName;
+    this.cartVendorName = menu.details.name;
 
-    // Build product payloads for new items
-    for (const input of items) {
-      const product =
-        cached.productsByCode.get(input.item_id) ||
-        cached.productsById.get(Number(input.item_id));
-
-      if (!product) {
-        throw new Error(
-          `Item "${input.item_id}" not found in menu for ${cached.vendorName}. Use get_menu to see available items.`
-        );
-      }
-
-      // Build toppings payload
-      const toppingsPayload: CartToppingPayload[] = [];
-
-      if (input.topping_ids && input.topping_ids.length > 0) {
-        // Group selected option IDs by their topping group
-        const selectedOptionIds = new Set(
-          input.topping_ids.map((id) => Number(id))
-        );
-
-        for (const group of product.topping_groups) {
-          const selectedOptions = group.options.filter((opt) =>
-            selectedOptionIds.has(opt.id)
-          );
-          if (selectedOptions.length > 0) {
-            toppingsPayload.push({
-              id: group.id,
-              name: group.name,
-              quantity: 1,
-              options: selectedOptions.map((opt) => ({
-                id: opt.id,
-                name: opt.name,
-                quantity: 1,
-              })),
-            });
-          }
-        }
-      }
-
-      const payload: CartProductPayload = {
-        id: product.id,
-        variation_id: product.variation.id,
-        code: product.code,
-        variation_code: product.variation.code,
-        variation_name: product.name,
-        quantity: input.quantity,
-        price: product.variation.price,
-        original_price: product.variation.price,
-        packaging_charge: 0,
-        vat_percentage: 0,
-        special_instructions: input.special_instructions || "",
-        sold_out_option: "REFUND",
-        toppings: toppingsPayload,
-        products: null,
-        tags: null,
-        menu_category_code: null,
-        menu_category_id: null,
-        menu_id: null,
-        group_id: null,
-        group_order_user_id: 0,
-      };
-
-      // Check if this product+variation already exists in cart
-      const existingIdx = this.cartProducts.findIndex(
-        (p) =>
-          p.id === payload.id &&
-          p.variation_id === payload.variation_id &&
-          p.special_instructions === payload.special_instructions &&
-          JSON.stringify(p.toppings) === JSON.stringify(payload.toppings)
-      );
-
+    for (const payload of lines) {
+      // Same product, variation, choices and instructions: bump the quantity.
+      const existingIdx = this.cartProducts.findIndex((p) => sameLine(p, payload));
       if (existingIdx >= 0) {
-        this.cartProducts[existingIdx].quantity += input.quantity;
+        this.cartProducts[existingIdx].quantity += payload.quantity;
       } else {
         this.cartProducts.push(payload);
         this.cartItemIds.push(`cart-${this.nextCartItemId++}`);
       }
     }
 
-    // Call cart/calculate to validate and get pricing
+    // Validate and price the whole cart with foodpanda
     return this.calculateCart();
   }
 
@@ -1000,6 +697,8 @@ export class FoodpandaClient {
   // ----------------------------------------------------------------
 
   async removeFromCart(cartItemId: string): Promise<Cart> {
+    this.guard.invalidate();
+    this.prepared = null;
     const idx = this.cartItemIds.indexOf(cartItemId);
     if (idx < 0) {
       throw new Error(
@@ -1030,35 +729,15 @@ export class FoodpandaClient {
   }
 
   // ----------------------------------------------------------------
-  // 7. Preview Order
+  // 7. Payment methods and addresses
   // ----------------------------------------------------------------
 
-  /** Cached checkout state from previewOrder, used by placeOrder */
-  private checkoutState: {
-    customer: CustomerProfile;
-    address: DeliveryAddress;
-    purchaseIntentId: string;
-    paymentMethods: PaymentMethodInfo[];
-  } | null = null;
-
-  /** Cached customer profile (rarely changes) */
+  /** Cached customer profile; dropped when the token changes. */
   private cachedCustomerProfile: CustomerProfile | null = null;
 
   private async getCustomerProfile(): Promise<CustomerProfile> {
     if (this.cachedCustomerProfile) return this.cachedCustomerProfile;
-
-    const result = await this.restRequest<{
-      data: {
-        id: string;
-        code: string;
-        first_name: string;
-        last_name: string;
-        email: string;
-        mobile_number: string;
-        mobile_country_code: string;
-      };
-    }>("/api/v5/customers");
-
+    const result = await this.restRequest<{ data: CustomerProfile }>("/api/v5/customers");
     this.cachedCustomerProfile = result.data;
     return result.data;
   }
@@ -1067,591 +746,364 @@ export class FoodpandaClient {
     const result = await this.restRequest<{
       data: { items: DeliveryAddress[] };
     }>("/api/v5/customers/addresses");
+    return result.data.items ?? [];
+  }
 
-    return result.data.items;
+  /** The address the user picked. With several saved addresses, never guess: ask. */
+  private chooseAddress(addresses: DeliveryAddress[], addressId?: number): DeliveryAddress {
+    if (addresses.length === 0) {
+      throw new Error("No saved delivery addresses. Add one in the foodpanda app first.");
+    }
+    if (addressId !== undefined) {
+      const hit = addresses.find((a) => Number(a.id) === Number(addressId));
+      if (!hit) throw new Error(`Saved address ${addressId} not found.\n${describeAddresses(addresses)}`);
+      return hit;
+    }
+    if (addresses.length === 1) return addresses[0];
+    throw new Error(
+      `There are ${addresses.length} saved addresses. Ask the user which one to deliver to and pass its address_id.\n` +
+        describeAddresses(addresses)
+    );
+  }
+
+  private async getPurchaseIntent(): Promise<PurchaseIntent> {
+    const cfg = getRegionConfig();
+    const resp = await this.restRequest<unknown>(
+      `/api/v5/purchase/intent?include=cashback&locale=${cfg.locale}`,
+      {
+        method: "POST",
+        body: JSON.stringify(
+          purchaseIntentRequest(this.cartVendor!.code, this.cartSubtotal, this.cartTotal, cfg.currency)
+        ),
+      }
+    );
+    return parsePurchaseIntent(resp);
+  }
+
+  /** LINE Pay (bound) and cash, if the account can use them for the current cart. */
+  async listPaymentMethods(): Promise<{
+    available: Array<{ payment_method: PaymentMethodChoice; label: string }>;
+    unavailable: Array<{ payment_method: PaymentMethodChoice; reason: string }>;
+    not_supported_by_this_server: string[];
+  }> {
+    this.requireCart();
+    const intent = await this.getPurchaseIntent();
+    return {
+      available: intent.options.map((o) => ({ payment_method: o.choice, label: o.label })),
+      unavailable: intent.unavailable.map((u) => ({ payment_method: u.choice, reason: u.reason })),
+      not_supported_by_this_server: intent.notSupported,
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // 8. Two-step order: prepare_order, then place_order
+  // ----------------------------------------------------------------
+
+  private requireCart(): void {
+    if (this.cartProducts.length === 0 || !this.cartVendor) {
+      throw new Error("Cart is empty. Add items first.");
+    }
+  }
+
+  /** Exactly what place_order would submit, for the confirmation code. */
+  private orderSnapshot(
+    customer: CustomerProfile,
+    address: DeliveryAddress,
+    payment: PaymentOption,
+    deliveryInstructions: string
+  ): OrderSnapshot {
+    return {
+      customer_id: String(customer.id),
+      restaurant_id: this.cartVendor!.code,
+      items: this.cartProducts.map((p, i) => ({
+        product_id: p.id,
+        variation_id: p.variation_id,
+        quantity: p.quantity,
+        topping_ids: p.toppings.map((t) => t.id),
+        special_instructions: p.special_instructions,
+        total_price: this.cartItems[i]?.total_price ?? p.price * p.quantity,
+      })),
+      subtotal: this.cartSubtotal,
+      delivery_fee: this.cartDeliveryFee,
+      service_fee: this.cartServiceFee,
+      total: this.cartTotal,
+      payment_method: payment.choice,
+      payment_instrument_id: payment.publicId,
+      address: {
+        id: Number(address.id),
+        latitude: address.latitude,
+        longitude: address.longitude,
+        text: address.formatted_customer_address ?? "",
+      },
+      delivery_instructions: deliveryInstructions,
+    };
   }
 
   /**
-   * Pick the best delivery address: closest to configured lat/lng.
+   * Price the cart for one saved address with one payment method selected, lock it,
+   * and issue a one-time confirmation code. Nothing is ordered.
    */
-  private pickDeliveryAddress(addresses: DeliveryAddress[]): DeliveryAddress {
-    if (addresses.length === 0) {
-      throw new Error(
-        "No saved delivery addresses found. Please add an address in the foodpanda app first."
+  async prepareOrder(input: {
+    payment_method: string;
+    address_id?: number;
+    delivery_instructions?: string;
+    previous_order_checked_in_app?: boolean;
+  }): Promise<PreparedOrderSummary> {
+    // Any earlier code is void from here on, whatever happens below.
+    this.guard.invalidate();
+    this.prepared = null;
+
+    const lock = this.orderCheckLock.get();
+    if (lock) {
+      if (!input.previous_order_checked_in_app) {
+        throw new Error(
+          `The previous order's status is unknown (${lock.reason}, at ${lock.at}). ` +
+            "It may already have been placed. Ask the user to check the foodpanda app first. Only after they " +
+            "confirm it did not go through (or that they want another order anyway), call prepare_order again " +
+            "with previous_order_checked_in_app: true."
+        );
+      }
+      this.orderCheckLock.clear();
+    }
+
+    const choice = parsePaymentMethodChoice(input.payment_method);
+    this.requireCart();
+    const instructions = input.delivery_instructions?.trim() ?? "";
+
+    const details = await this.getRestaurantDetails(this.cartVendor!.code);
+    if (!details.is_open || !details.is_delivery_available) {
+      throw new Error(`${details.name} is closed or not taking delivery orders right now.`);
+    }
+
+    const customer = await this.getCustomerProfile();
+    const address = this.chooseAddress(await this.getDeliveryAddresses(), input.address_id);
+
+    // Price at the chosen address, then select the payment method the way the web app does.
+    await this.calculateCart({ address });
+    const intent = await this.getPurchaseIntent();
+    const option = intent.options.find((o) => o.choice === choice);
+    if (!option) {
+      const why = intent.unavailable.find((u) => u.choice === choice)?.reason;
+      throw new UnsupportedPaymentMethodError(
+        choice,
+        intent.options.map((o) => o.choice),
+        why === "no bound LINE Pay account" ? "LINE Pay not bound: no LINE Pay account is bound to foodpanda" : why
       );
     }
-    if (addresses.length === 1) return addresses[0];
-
-    let best = addresses[0];
-    let bestDist = Infinity;
-    for (const addr of addresses) {
-      const dlat = addr.latitude - this.latitude;
-      const dlng = addr.longitude - this.longitude;
-      const dist = dlat * dlat + dlng * dlng;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = addr;
-      }
-    }
-    return best;
-  }
-
-  private async getPurchaseIntent(
-    vendorCode: string,
-    subtotal: number,
-    total: number
-  ): Promise<{
-    intentId: string;
-    paymentMethods: PaymentMethodInfo[];
-  }> {
-    interface IntentResponse {
-      data: {
-        purchaseIntent: { id: string };
-        paymentMethodDetails: {
-          paymentMethods: Array<{
-            name: string;
-            hidden: boolean;
-            isOnlinePaymentMethod: boolean;
-            preferred: boolean;
-            paymentInstruments: Array<{
-              publicId: string;
-              preferred: boolean;
-              publicFields?: {
-                displayValue?: string;
-                bin?: string;
-                owner?: string;
-                validToMonth?: number;
-                validToYear?: number;
-                scheme?: string;
-              };
-            }> | null;
-          }>;
-        };
-      };
-    }
-
-    const result = await this.restRequest<IntentResponse>(
-      `/api/v5/purchase/intent?include=cashback&locale=${getRegionConfig().locale}`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          subtotal,
-          currency: getRegionConfig().currency,
-          vendorCode,
-          amount: total,
-          emoneyAmountToUse: 0,
-          expeditionType: "delivery",
-          paymentLimits: [
-            { limitCode: "foodafterdiscount", limitAmount: subtotal },
-            { limitCode: "orderamountwithoutpaymentfee", limitAmount: total },
-          ],
-        }),
-      }
-    );
-
-    const intentId = result.data.purchaseIntent.id;
-    const methods: PaymentMethodInfo[] = [];
-
-    for (const pm of result.data.paymentMethodDetails.paymentMethods) {
-      if (pm.hidden) continue;
-
-      if (pm.name === "payment_on_delivery") {
-        const instrument = pm.paymentInstruments?.[0];
-        methods.push({
-          name: "payment_on_delivery",
-          display_name: "Cash on Delivery",
-          instrument_id: instrument?.publicId ?? null,
-        });
-      } else if (pm.name === "generic_creditcard") {
-        // List each saved card as a separate option
-        if (pm.paymentInstruments && pm.paymentInstruments.length > 0) {
-          for (const inst of pm.paymentInstruments) {
-            const pf = inst.publicFields;
-            const label = pf?.scheme && pf?.displayValue
-              ? `${pf.scheme} ending ${pf.displayValue}`
-              : "Saved card";
-            methods.push({
-              name: "generic_creditcard",
-              display_name: label,
-              instrument_id: inst.publicId,
-              card_details: pf
-                ? {
-                    scheme: pf.scheme ?? "",
-                    last_4_digits: pf.displayValue ?? "",
-                    bin: pf.bin ?? "",
-                    owner: pf.owner ?? "",
-                    valid_to_month: pf.validToMonth ?? 0,
-                    valid_to_year: pf.validToYear ?? 0,
-                  }
-                : undefined,
-            });
-          }
-        }
-      } else if (pm.name === "antfinancial_gcash") {
-        methods.push({
-          name: "antfinancial_gcash",
-          display_name: "GCash (requires app redirect — may not work via MCP)",
-          instrument_id: null,
-        });
-      }
-    }
-
-    return { intentId, paymentMethods: methods };
-  }
-
-  async previewOrder(): Promise<OrderPreview> {
-    if (this.cartProducts.length === 0 || !this.cartVendor) {
-      throw new Error("Cart is empty. Add items before previewing an order.");
-    }
-
-    // Check if the restaurant is currently open for delivery
-    const vendorDetails = await this.getRestaurantDetails(this.cartVendor.code);
-    if (!vendorDetails.is_open || !vendorDetails.is_delivery_available) {
+    const amount = this.cartTotal;
+    await this.calculateCart({ address, payment: { option, amount } });
+    if (this.cartTotal !== amount) {
       throw new Error(
-        `${vendorDetails.name} is currently closed or not accepting delivery orders. Please try again during their operating hours.`
+        `The total changed from ${amount} to ${this.cartTotal} when the payment method was selected. Call prepare_order again.`
+      );
+    }
+    const unavailable = this.cartItems.filter((i) => i.is_available === false);
+    if (unavailable.length > 0) {
+      throw new Error(
+        `Not available right now: ${unavailable.map((i) => i.name).join(", ")}. Remove them from the cart first.`
       );
     }
 
-    const [customer, addresses, intent] = await Promise.all([
-      this.getCustomerProfile(),
-      this.getDeliveryAddresses(),
-      this.getPurchaseIntent(
-        this.cartVendor.code,
-        this.cartSubtotal,
-        this.cartTotal
-      ),
-    ]);
-
-    const address = this.pickDeliveryAddress(addresses);
-
-    // Cache for placeOrder
-    this.checkoutState = {
-      customer,
-      address,
-      purchaseIntentId: intent.intentId,
-      paymentMethods: intent.paymentMethods,
-    };
+    const snapshot = this.orderSnapshot(customer, address, option, instructions);
+    this.prepared = { option, addressId: Number(address.id), deliveryInstructions: instructions };
+    const issued = this.guard.issue(snapshot);
 
     return {
-      cart: {
-        restaurant_id: this.cartVendor.code,
-        restaurant_name: this.cartVendorName,
-        items: this.cartItems,
-        subtotal: this.cartSubtotal,
-        delivery_fee: this.cartDeliveryFee,
-        service_fee: this.cartServiceFee,
-        total: this.cartTotal,
-      },
+      confirmation_code: issued.code,
+      expires_at: issued.expires_at,
+      restaurant: { id: this.cartVendor!.code, name: this.cartVendorName },
+      items: this.cartItems.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        options: i.toppings.map((t) => (t.price ? `${t.name} (+${t.price})` : t.name)),
+        special_instructions: i.special_instructions,
+        total_price: i.total_price,
+      })),
+      subtotal: this.cartSubtotal,
+      delivery_fee: this.cartDeliveryFee,
+      service_fee: this.cartServiceFee,
+      total: this.cartTotal,
+      currency: getRegionConfig().currency,
+      payment_method: { payment_method: choice, label: option.label },
       delivery_address: {
-        id: address.id,
-        label: address.label,
-        formatted_address: address.formatted_customer_address,
-        delivery_instructions: address.delivery_instructions,
+        id: Number(address.id),
+        label: address.label ?? null,
+        address: address.formatted_customer_address ?? "",
       },
-      payment_methods: intent.paymentMethods,
+      delivery_instructions: instructions,
     };
   }
 
-  // ----------------------------------------------------------------
-  // 8. Place Order
-  // ----------------------------------------------------------------
+  /**
+   * Submit the order prepared by prepareOrder. Re-checks everything against
+   * foodpanda first; the code is spent before checkout is sent, and checkout is
+   * sent exactly once (no retry of any kind).
+   */
+  async placeOrder(confirmationCode: string): Promise<OrderResult> {
+    const prepared = this.prepared;
+    try {
+      if (!prepared || !this.cartVendor || this.cartProducts.length === 0) {
+        // Let the guard word it: missing, used, expired or unknown.
+        this.guard.consume(confirmationCode, EMPTY_SNAPSHOT);
+        throw new OrderConfirmationError("unknown", "Unknown confirmation code. Call prepare_order again.");
+      }
 
-  async placeOrder(
-    paymentMethodName: string,
-    deliveryInstructions?: string
-  ): Promise<OrderResult> {
-    if (!this.checkoutState) {
-      throw new Error(
-        "No order preview found. Call preview_order first to prepare checkout."
-      );
-    }
-    if (this.cartProducts.length === 0 || !this.cartVendor) {
-      throw new Error("Cart is empty.");
-    }
+      // Re-validate: same account, the same saved address as it is now, current prices.
+      const customer = await this.getCustomerProfile();
+      const address = (await this.getDeliveryAddresses()).find((a) => Number(a.id) === prepared.addressId);
+      if (!address) {
+        throw new OrderConfirmationError(
+          "changed",
+          "The delivery address was removed since prepare_order. Call prepare_order again.",
+          ["address"]
+        );
+      }
+      await this.calculateCart({ address, payment: { option: prepared.option, amount: this.cartTotal } });
+      // Ask again which instrument would be charged: rebinding or unbinding LINE Pay in the
+      // app since prepare_order changes it (or removes it), and the snapshot then differs.
+      const intent = await this.getPurchaseIntent();
+      const option = intent.options.find((o) => o.choice === prepared.option.choice);
+      if (!option) {
+        throw new OrderConfirmationError(
+          "changed",
+          `${prepared.option.label} can no longer be used for this order. Call prepare_order again.`,
+          ["payment_method"]
+        );
+      }
+      const current = this.orderSnapshot(customer, address, option, prepared.deliveryInstructions);
 
-    // Re-calculate cart to ensure product data is fresh and matches server state
-    await this.calculateCart();
+      // Spend the code. From here on, any failure needs a new prepare_order.
+      this.guard.consume(confirmationCode, current);
+      this.prepared = null;
 
-    const { customer, address, purchaseIntentId, paymentMethods } =
-      this.checkoutState;
-
-    // Find the selected payment method
-    const selectedMethod = paymentMethods.find(
-      (m) => m.name === paymentMethodName
-    );
-    if (!selectedMethod) {
-      const available = paymentMethods.map((m) => m.name).join(", ");
-      throw new Error(
-        `Payment method "${paymentMethodName}" not available. Available: ${available}`
-      );
-    }
-
-    // Build payment methods array for checkout
-    const paymentMethodsPayload: Array<{
-      amount: number;
-      metadata: Record<string, unknown>;
-      method: string;
-    }> = [];
-
-    if (selectedMethod.name === "generic_creditcard") {
-      throw new Error(
-        "Credit card payments are not supported via MCP. Foodpanda requires a browser-based payment flow (Adyen SDK) to authorize credit card charges, which cannot be completed through API calls alone. Please use 'payment_on_delivery' (Cash on Delivery) instead."
-      );
-    } else if (selectedMethod.name === "payment_on_delivery") {
-      paymentMethodsPayload.push({
-        amount: this.cartTotal,
-        metadata: {
-          token: selectedMethod.instrument_id,
-        },
-        method: "payment_on_delivery",
+      const cfg = getRegionConfig();
+      const cached = this.menuCache.get(this.cartVendor.code);
+      const body = buildCheckoutRequest({
+        products: this.cartProducts,
+        menuItem: (id) => cached?.productsById.get(id),
+        vendor: this.cartVendor,
+        customer: { id: String(customer.id), email: customer.email },
+        address,
+        deliveryInstructions: prepared.deliveryInstructions,
+        total: current.total,
+        // The intent just fetched for this exact amount; its instrument matched the confirmed one.
+        intentId: intent.intentId,
+        option,
+        webHost: cfg.webHost,
+        currency: cfg.currency,
       });
-    } else {
-      throw new Error(
-        `Payment method "${selectedMethod.name}" is not supported for automated checkout. Use "payment_on_delivery" or "generic_creditcard".`
-      );
-    }
 
-    // Build checkout product payloads (more verbose than cart/calculate)
-    const cached = this.menuCache.get(this.cartVendor.code);
-    const checkoutProducts = this.cartProducts.map((p) => {
-      const menuItem = cached?.productsById.get(p.id);
-      return {
-        description: menuItem?.description ?? "",
-        priceBeforeDiscount: null,
-        name: menuItem?.name ?? p.variation_name,
-        vat_percentage: p.vat_percentage,
-        discount: null,
-        special_instructions: p.special_instructions,
-        variation_name: "",
-        sold_out_option: p.sold_out_option,
-        toppings: p.toppings,
-        price: p.price,
-        packaging_price: p.packaging_charge,
-        original_price: p.original_price,
-        quantity: p.quantity,
-        quantity_auto_added: 0,
-        id: p.id,
-        variation_id: p.variation_id,
-        is_available: true,
-        is_alcoholic_item: false,
-        total_price: p.price * p.quantity,
-        total_price_before_discount: p.price * p.quantity,
-        products: [],
-        product_variation_id: p.variation_id,
-        product_id: p.id,
-        sold_out_options: [
-          { default: true, option: "REFUND", text: "NEXTGEN_SoldOutOptions_Refund" },
-          { default: false, option: "CALL_CUSTOMER", text: "NEXTGEN_SoldOutOptions_CALL_CUSTOMER" },
-        ],
-        product_variations: [
-          {
-            id: p.variation_id,
-            code: p.variation_code,
-            remote_code: p.variation_code,
-            container_price: 0,
-            price: p.price,
-            topping_ids: p.toppings.map((t) => t.id),
-            topping_properties: [],
-            unit_pricing: null,
-            total_price: 0,
-            dietary_attributes: {},
+      let resp: unknown;
+      try {
+        // restRequestOnce, never restRequest: a checkout must not be retried.
+        resp = await this.restRequestOnce<unknown>("/api/v5/cart/checkout", {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: {
+            "dps-session-id": this.dpsSessionId(),
+            "x-caller-platform": "mfe",
+            "x-global-entity-id": requireGlobalEntityId(),
           },
-        ],
-        code: p.code,
-        variation_code: p.variation_code,
-        is_bundle: false,
-        tags: [],
-        imageUrl: menuItem?.image_url ?? "",
-        initial_price: p.price,
-        initial_original_price: p.original_price,
-        product_type: "",
-      };
-    });
+        });
+      } catch (err) {
+        throw this.unresolved(
+          new CheckoutStatusUnknownError(`sending the order failed (${redactForLog((err as Error).message)}).`)
+        );
+      }
 
-    // Build dps-session-id header
-    const dpsPayload = {
-      session_id: Array.from({ length: 32 }, () =>
-        Math.floor(Math.random() * 16).toString(16)
-      ).join(""),
+      console.error("[placeOrder] checkout response:", redactForLog(resp));
+      let outcome;
+      try {
+        outcome = parseCheckoutResponse(resp);
+      } catch (err) {
+        throw this.unresolved(err as Error);
+      }
+      const total = current.total;
+      this.clearCart();
+      const mismatches = checkoutMismatches(outcome, { total, method: option.method });
+      return {
+        ...(mismatches.length > 0
+          ? {
+              attention:
+                `MISMATCH: foodpanda reports ${mismatches.join("; ")}. Tell the user right away and ask them ` +
+                "to check the order and the charge in the foodpanda app.",
+            }
+          : {}),
+        order_id: outcome.orderCode,
+        status: outcome.status,
+        estimated_delivery_time: outcome.estimatedDelivery,
+        total,
+        payment_method: option.choice,
+      };
+    } finally {
+      // Whatever happened, this code and this preparation are finished.
+      this.guard.invalidate();
+      this.prepared = null;
+    }
+  }
+
+  /**
+   * After a checkout whose outcome is unknown: empty the cart and refuse a new
+   * prepare_order until the user has checked the app, so the agent cannot
+   * simply order again and risk a duplicate.
+   */
+  private unresolved(err: Error): Error {
+    this.clearCart();
+    // Never let a file error hide the "status unknown" message; the lock still holds in memory.
+    if (!this.orderCheckLock.trySet()) {
+      console.error("foodpanda-mcp: could not save the check-the-app lock file; it holds until restart only.");
+    }
+    return err;
+  }
+
+  private dpsSessionId(): string {
+    const payload = {
+      session_id: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
       perseus_id: this.perseusClientId,
       timestamp: Math.floor(Date.now() / 1000),
     };
-    const dpsSessionId = Buffer.from(JSON.stringify(dpsPayload)).toString("base64");
-
-    // Build the full checkout body
-    const checkoutBody = {
-      platform: "b2c",
-      expected_total_amount: this.cartTotal,
-      customer: {
-        id: customer.id,
-        email: customer.email,
-        address_id: String(address.id),
-        age_verification_token: "",
-      },
-      expedition: {
-        delivery_address: {
-          ...address,
-          id: String(address.id),
-          type: String(address.type),
-          location_type: "polygon",
-          object_type: "saved address",
-        },
-        type: "delivery",
-        latitude: address.latitude,
-        longitude: address.longitude,
-        instructions: deliveryInstructions ?? "",
-        delivery_instructions_tags: [] as string[],
-        delivery_option: "standard",
-      },
-      order_time: "now",
-      source: "volo",
-      vendor: this.cartVendor,
-      products: checkoutProducts,
-      payment: {
-        client_redirect_url: `${getRegionConfig().webHost}/payments/handle-payment/`,
-        purchase_intent_id: purchaseIntentId,
-        currency: getRegionConfig().currency,
-        methods: paymentMethodsPayload,
-      },
-      voucher: "",
-      voucher_context: { construct_id: "" },
-      bypass_duplicate_order_check: false,
-      supported_features: {
-        support_banned_products_soft_fail: true,
-        small_order_fee_enabled: true,
-        "pd-tx-cash-to-online-payment-surcharge": false,
-      },
-      joker_offer_id: "",
-      joker: { single_discount: true },
-    };
-
-    interface CheckoutResponse {
-      id?: string;
-      order?: {
-        code?: string;
-        order_code?: string;
-        status?: string;
-        estimated_delivery_time?: string;
-      };
-      code?: string;
-      order_code?: string;
-      status?: string;
-      data?: {
-        order_code?: string;
-        code?: string;
-        status?: string;
-      };
-      payment?: {
-        result?: string;
-        purchase_id?: string;
-        action?: string | null;
-        reason?: string;
-      };
-      expedition?: {
-        expected_delivery_duration?: number;
-      };
-      redirect_url?: string;
-      errors?: Array<{ message?: string; code?: string }>;
-      error?: string;
-      message?: string;
-    }
-
-    const result = await this.restRequest<CheckoutResponse>(
-      "/api/v5/cart/checkout",
-      {
-        method: "POST",
-        body: JSON.stringify(checkoutBody),
-        headers: {
-          "dps-session-id": dpsSessionId,
-          "x-caller-platform": "mfe",
-          "x-global-entity-id": requireGlobalEntityId(),
-        },
-      }
-    );
-
-    // Log the response for debugging, without names, phones, addresses or tokens
-    console.error("[placeOrder] checkout response:", redactForLog(result));
-
-    // Check for error indicators in the response body
-    if (result.errors && result.errors.length > 0) {
-      const messages = result.errors
-        .map((e) => e.message || e.code || "unknown error")
-        .join("; ");
-      throw new Error(`Checkout failed: ${messages}`);
-    }
-    if (result.error) {
-      throw new Error(`Checkout failed: ${result.error}`);
-    }
-    if (result.message && !result.order && !result.code && !result.order_code && !result.data) {
-      throw new Error(`Checkout failed: ${result.message}`);
-    }
-
-    // Handle redirect_url (e.g. 3DS authentication for credit cards)
-    if (result.redirect_url) {
-      throw new Error(
-        `Payment requires browser authentication. Please complete payment at: ${result.redirect_url}`
-      );
-    }
-
-    // Extract order code — the API returns it as `id` at the top level
-    const orderCode =
-      result.id ??
-      result.order?.code ??
-      result.order?.order_code ??
-      result.code ??
-      result.order_code ??
-      result.data?.order_code ??
-      result.data?.code ??
-      null;
-
-    if (!orderCode) {
-      console.error("[placeOrder] no order code found in response:", redactForLog(result));
-      throw new Error(
-        "Order may not have been placed — no order code in response. Check your foodpanda app/website to confirm. A redacted copy of the response was logged to server stderr."
-      );
-    }
-
-    // Extract status from payment result or top-level status
-    const status =
-      result.payment?.result ??
-      result.order?.status ??
-      result.status ??
-      result.data?.status ??
-      "placed";
-
-    // Capture total before clearing cart
-    const finalTotal = checkoutBody.expected_total_amount;
-
-    // Derive estimated delivery time from available response fields
-    const deliveryMinutes = result.expedition?.expected_delivery_duration ?? 0;
-    const estimatedDelivery =
-      result.order?.estimated_delivery_time ??
-      (deliveryMinutes > 0 ? `${deliveryMinutes} min` : "");
-
-    // Only clear cart after confirmed successful order
-    this.clearCart();
-    this.checkoutState = null;
-
-    return {
-      order_id: orderCode,
-      status,
-      estimated_delivery_time: estimatedDelivery,
-      total: finalTotal,
-    };
+    return Buffer.from(JSON.stringify(payload)).toString("base64");
   }
 
   // ----------------------------------------------------------------
   // Cart calculation helper
   // ----------------------------------------------------------------
 
-  private async calculateCart(): Promise<Cart> {
+  /**
+   * Validate and price the cart with foodpanda. Without an address it uses the configured
+   * location; prepare/place pass the chosen saved address and the selected payment method.
+   */
+  private async calculateCart(
+    at: { address?: DeliveryAddress; payment?: { option: PaymentOption; amount: number } } = {}
+  ): Promise<Cart> {
     if (!this.cartVendor || this.cartProducts.length === 0) {
       throw new Error("Cart is empty. Add items first.");
     }
 
-    const requestBody: CartCalculateRequest = {
-      products: this.cartProducts,
-      vendor: this.cartVendor,
-      expedition: {
-        type: "delivery",
-        delivery_option: "standard",
-        latitude: this.latitude,
-        longitude: this.longitude,
-      },
-      voucher: "",
-      voucher_context: null,
-      auto_apply_voucher: false,
-      joker: { single_discount: true },
-      joker_offer_id: "",
-      payment: { version: 1 },
-      group_order: null,
-      source: "",
-      order_time: "",
-      participants: [],
-      items: null,
-    };
+    let requestBody = buildCalculateRequest(
+      this.cartProducts,
+      this.cartVendor,
+      at.address?.latitude ?? this.latitude,
+      at.address?.longitude ?? this.longitude
+    );
+    if (at.payment) requestBody = withPaymentMethod(requestBody, at.payment.option, at.payment.amount);
 
-    interface CalculateResponse {
-      products: Array<{
-        id: number;
-        variation_id: number;
-        price: number;
-        original_price: number;
-        quantity: number;
-        is_available: boolean;
-        variation_name: string;
-      }>;
-      expedition: {
-        delivery_fee: number;
-        original_delivery_fee: number;
-        selected_delivery_option?: {
-          delivery_fee: number;
-        };
-      };
-      payment: {
-        subtotal: number;
-        service_fee: number;
-        total: number;
-      };
-    }
-
-    const result = await this.restRequest<CalculateResponse>(
+    const result = await this.restRequest<unknown>(
       "/api/v5/cart/calculate?include=expedition",
       {
         method: "POST",
         body: JSON.stringify(requestBody),
+        headers: { "X-Caller-Platform": "mfe" },
       }
     );
+    if (at.payment) checkCalculatedPayment(result, at.payment.option);
 
-    // Update local cart state from server response
-    this.cartSubtotal = result.payment?.subtotal ?? 0;
-    this.cartServiceFee = result.payment?.service_fee ?? 0;
-    this.cartTotal = result.payment?.total ?? 0;
-    this.cartDeliveryFee =
-      result.expedition?.selected_delivery_option?.delivery_fee ??
-      result.expedition?.delivery_fee ??
-      0;
-
-    // Rebuild cartItems from the response + our stored payloads
-    const cached = this.menuCache.get(this.cartVendor!.code);
-    this.cartItems = this.cartProducts.map((payload, idx) => {
-      // Match server response by (id, variation_id) instead of index
-      const serverProduct = result.products?.find(
-        (sp) => sp.id === payload.id && sp.variation_id === payload.variation_id
-      );
-      const quantity = serverProduct?.quantity ?? payload.quantity;
-      const unitPrice = serverProduct?.price ?? payload.price;
-
-      // Resolve topping names from flat lookup map
-      const toppingDetails: Array<{
-        id: number;
-        name: string;
-        price: number;
-      }> = [];
-      if (cached) {
-        for (const tGroup of payload.toppings) {
-          for (const tOpt of tGroup.options) {
-            const opt = cached.toppingOptionsById.get(tOpt.id);
-            if (opt) {
-              toppingDetails.push(opt);
-            }
-          }
-        }
-      }
-
-      return {
-        cart_item_id: this.cartItemIds[idx],
-        product_id: payload.id,
-        variation_id: payload.variation_id,
-        code: payload.code,
-        name: payload.variation_name,
-        quantity,
-        unit_price: unitPrice,
-        total_price: unitPrice * quantity,
-        toppings: toppingDetails,
-        special_instructions: payload.special_instructions,
-      };
-    });
+    const calc = parseCalculate(result, this.cartProducts);
+    this.cartSubtotal = calc.subtotal;
+    this.cartServiceFee = calc.serviceFee;
+    this.cartTotal = calc.total;
+    this.cartDeliveryFee = calc.deliveryFee;
+    this.cartItems = cartItemsOf(this.cartProducts, this.cartItemIds, calc);
 
     return {
       restaurant_id: this.cartVendor.code,
@@ -1665,6 +1117,8 @@ export class FoodpandaClient {
   }
 
   private clearCart(): void {
+    this.guard.invalidate();
+    this.prepared = null;
     this.cartProducts = [];
     this.cartItemIds = [];
     this.cartVendor = null;
