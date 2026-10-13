@@ -504,8 +504,14 @@ export interface CalculatedCart {
   serviceFee: number;
   total: number;
   /**
-   * total minus (subtotal + delivery fee + service fee): what foodpanda charges that this
-   * server does not itemise, e.g. a small-order fee. 0 when the parts add up.
+   * small_order_fee.soft_minimum_order_value.fee: charged when the subtotal is under the
+   * restaurant's minimum order (19 on a 60 TWD cart against a minimum of 79 in the live run
+   * of 2026-10-13; 0 above the minimum in the tw capture). Not part of payment.*.
+   */
+  smallOrderFee: number;
+  /**
+   * total minus (subtotal + delivery fee + service fee + small-order fee): anything else
+   * foodpanda charges that this server does not itemise. 0 when the parts add up.
    */
   otherCharges: number;
   /** small_order_fee.soft_minimum_order_value.amount and small_order_fee.cap, when sent. */
@@ -539,12 +545,15 @@ export function parseCalculate(resp: any, sent: CartProductPayload[]): Calculate
     resp?.expedition?.selected_delivery_option?.delivery_fee ?? resp?.expedition?.delivery_fee ?? 0;
   const soft = resp?.small_order_fee?.soft_minimum_order_value;
   const cap = resp?.small_order_fee?.cap;
+  // Matched by field, never by amount: the delivery fee can be 19 too.
+  const smallOrderFee = typeof soft?.fee === "number" ? soft.fee : 0;
   return {
     subtotal,
     serviceFee,
     total,
     deliveryFee,
-    otherCharges: Math.round((total - subtotal - deliveryFee - serviceFee) * 100) / 100,
+    smallOrderFee,
+    otherCharges: Math.round((total - subtotal - deliveryFee - serviceFee - smallOrderFee) * 100) / 100,
     smallOrder:
       typeof soft?.amount === "number"
         ? { minimum: soft.amount, cap: typeof cap === "number" ? cap : null }
@@ -554,23 +563,31 @@ export function parseCalculate(resp: any, sent: CartProductPayload[]): Calculate
 }
 
 /**
- * The part of the total that subtotal, delivery fee and service fee do not explain, for
- * tool output, so the user sees where every dollar goes. foodpanda's own name for it is not
- * known: the tw capture only has orders above the minimum, where the parts add up.
+ * Charges beyond subtotal, delivery fee and service fee, for tool output, so the user sees
+ * where every dollar goes: the small-order fee by name, and anything still unexplained.
  */
 export function otherChargesOf(
-  calc: Pick<CalculatedCart, "subtotal" | "otherCharges" | "smallOrder">
-): { other_charges?: number; other_charges_note?: string } {
-  if (!calc.otherCharges) return {};
-  const below = calc.smallOrder && calc.subtotal < calc.smallOrder.minimum;
-  return {
-    other_charges: calc.otherCharges,
-    other_charges_note: below
-      ? `Not itemised by foodpanda's reply. The subtotal is below the restaurant's minimum order of ` +
-        `${calc.smallOrder!.minimum}${calc.smallOrder!.cap !== null ? ` (small-order fee cap ${calc.smallOrder!.cap})` : ""}, ` +
-        `so this is most likely the small-order fee. The total already includes it.`
-      : "Not itemised by foodpanda's reply; the total already includes it. Check the app for the breakdown.",
-  };
+  calc: Pick<CalculatedCart, "smallOrderFee" | "otherCharges" | "smallOrder">
+): {
+  small_order_fee?: number;
+  small_order_fee_note?: string;
+  other_charges?: number;
+  other_charges_note?: string;
+} {
+  const out: ReturnType<typeof otherChargesOf> = {};
+  if (calc.smallOrderFee) {
+    out.small_order_fee = calc.smallOrderFee;
+    out.small_order_fee_note = calc.smallOrder
+      ? `The subtotal is below the restaurant's minimum order of ${calc.smallOrder.minimum}. ` +
+        `Adding items up to the minimum removes this fee.`
+      : "The subtotal is below the restaurant's minimum order.";
+  }
+  if (calc.otherCharges) {
+    out.other_charges = calc.otherCharges;
+    out.other_charges_note =
+      "Not itemised by foodpanda's reply; the total already includes it. Check the app for the breakdown.";
+  }
+  return out;
 }
 
 /** Cart lines for tool output, from what was sent and what foodpanda priced. */

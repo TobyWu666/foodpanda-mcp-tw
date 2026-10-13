@@ -83,3 +83,54 @@ test("on Linux the Xvfb display is used once its socket appears", async () => {
   // A later error from the running Xvfb is handled too.
   assert.ok(child.listenerCount("error") > 0);
 });
+
+/** A context whose storefront page shows the given titles, one per warm-up attempt. */
+function challengedContext(titles: string[]) {
+  const cleared: unknown[] = [];
+  const page: any = {
+    goto: async () => {},
+    waitForTimeout: async () => {},
+    mouse: { move: async () => {}, wheel: async () => {} },
+    title: async () => titles.shift() ?? "foodpanda",
+    close: async () => {},
+  };
+  const context: any = {
+    pages: () => [page],
+    newPage: async () => page,
+    clearCookies: async (filter: unknown) => void cleared.push(filter),
+  };
+  return { context, cleared };
+}
+
+class FakeBrowser extends BrowserTransport {
+  resets = 0;
+  constructor(private readonly ctx: any) {
+    super({ challengeDelayMs: () => 0 });
+  }
+  async getContext() {
+    (this as any).context = this.ctx;
+    return this.ctx;
+  }
+  async resetProfile() {
+    this.resets++;
+  }
+}
+
+test("a PerimeterX challenge clears only its cookies, keeping the login", async () => {
+  const { context, cleared } = challengedContext(["Access to this page has been denied", "foodpanda"]);
+  const t = new FakeBrowser(context);
+  await t.warmUp(3);
+  assert.equal(t.resets, 0, "the profile (and its login cookies) is kept");
+  assert.equal(cleared.length, 1);
+  const name = (cleared[0] as { name: RegExp }).name;
+  assert.ok(name.test("_px3") && name.test("_pxvid"));
+  assert.ok(!name.test("token") && !name.test("session"));
+});
+
+test("still challenged after clearing: the profile is reset as a last resort", async () => {
+  const denied = "Access to this page has been denied";
+  const { context } = challengedContext([denied, denied, "foodpanda"]);
+  const t = new FakeBrowser(context);
+  await t.warmUp(3);
+  assert.equal(t.resets, 1);
+});

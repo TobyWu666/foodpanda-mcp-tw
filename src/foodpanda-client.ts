@@ -130,6 +130,8 @@ export interface PreparedOrderSummary {
   subtotal: number;
   delivery_fee: number;
   service_fee: number;
+  small_order_fee?: number;
+  small_order_fee_note?: string;
   other_charges?: number;
   other_charges_note?: string;
   total: number;
@@ -177,7 +179,7 @@ export class FoodpandaClient {
   private cartDeliveryFee: number = 0;
   private cartServiceFee: number = 0;
   private cartTotal: number = 0;
-  /** Part of the total not itemised above (e.g. a small-order fee), for tool output. */
+  /** Small-order fee and anything else beyond the listed fees, for tool output. */
   private cartOther: ReturnType<typeof otherChargesOf> = {};
   private nextCartItemId: number = 1;
 
@@ -359,16 +361,17 @@ export class FoodpandaClient {
         if (attempt === maxAttempts) break;
 
         // The escalation is time-based: a burst of calls gets challenged even from a warm
-        // session, and hammering it re-trips the rule. Wait longer each time, and come back
-        // with a clean browser identity.
+        // session, and hammering it re-trips the rule. Wait longer each time, then drop the
+        // PerimeterX cookies (not the login) and warm up again; warmUp resets the whole
+        // profile only if that is still blocked.
         const pauseMs = baseMs * attempt;
         console.error(
           `foodpanda-mcp: PerimeterX re-challenged — waiting ${Math.round(pauseMs / 1000)}s ` +
-            `(attempt ${attempt}/${maxAttempts - 1}), then resetting the profile and retrying`
+            `(attempt ${attempt}/${maxAttempts - 1}), then clearing its cookies and retrying`
         );
         await new Promise((r) => setTimeout(r, pauseMs));
         const transport = browserTransport();
-        await transport.resetProfile();
+        await transport.clearChallenge();
         await transport.warmUp(3);
       }
     }

@@ -106,7 +106,10 @@ export interface Cart {
   subtotal: number;
   delivery_fee: number;
   service_fee: number;
-  /** Part of the total not itemised above (e.g. a small-order fee); absent when the parts add up. */
+  /** Fee for a subtotal under the restaurant's minimum order; absent when there is none. */
+  small_order_fee?: number;
+  small_order_fee_note?: string;
+  /** Part of the total not itemised above; absent when the parts add up. */
   other_charges?: number;
   other_charges_note?: string;
   total: number;
