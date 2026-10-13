@@ -56,8 +56,9 @@
 
 - Node.js（本 repo 沒有指定最低版本）
 - Playwright 的 Chromium（`npx playwright install chromium`）。API 請求和登入都在真的瀏覽器裡進行。
-- 在沒有螢幕的伺服器上需要 **Xvfb**（`apt-get install xvfb`）。瀏覽器必須以有畫面（headed）模式執行才過得了 PerimeterX，
-  沒有 `DISPLAY` 時程式會自己啟動 Xvfb。在一般桌機（Mac／Windows／有桌面的 Linux）上不需要。
+- **Linux 伺服器沒有 `DISPLAY`（沒有螢幕）時，必須先安裝 Xvfb**（`apt-get install xvfb`）。瀏覽器必須以有畫面（headed）模式執行才過得了 PerimeterX，
+  程式會自己啟動一個 Xvfb 虛擬螢幕；沒裝的話會回錯誤「Xvfb is not installed」。
+  Mac、Windows 和有桌面的 Linux 會直接開一般的瀏覽器視窗，不需要 Xvfb。
 - 一個 foodpanda 台灣帳號，而且**要用的外送地址已經先存在帳號裡**。下單時在 `prepare_order` 選定地址（見[下單安全](#下單安全兩步下單)）。
 
 ## 安裝與建置
