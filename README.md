@@ -56,8 +56,9 @@
 
 - Node.js（本 repo 沒有指定最低版本）
 - Playwright 的 Chromium（`npx playwright install chromium`）。API 請求和登入都在真的瀏覽器裡進行。
-- 在沒有螢幕的伺服器上需要 **Xvfb**（`apt-get install xvfb`）。瀏覽器必須以有畫面（headed）模式執行才過得了 PerimeterX，
-  沒有 `DISPLAY` 時程式會自己啟動 Xvfb。在一般桌機（Mac／Windows／有桌面的 Linux）上不需要。
+- **Linux 伺服器沒有 `DISPLAY`（沒有螢幕）時，必須先安裝 Xvfb**（`apt-get install xvfb`）。瀏覽器必須以有畫面（headed）模式執行才過得了 PerimeterX，
+  程式會自己啟動一個 Xvfb 虛擬螢幕；沒裝的話會回錯誤「Xvfb is not installed」。
+  Mac、Windows 和有桌面的 Linux 會直接開一般的瀏覽器視窗，不需要 Xvfb。
 - 一個 foodpanda 台灣帳號，而且**要用的外送地址已經先存在帳號裡**。下單時在 `prepare_order` 選定地址（見[下單安全](#下單安全兩步下單)）。
 
 ## 安裝與建置
@@ -96,7 +97,6 @@ MCP server 不會繼承你 shell 的環境變數，所有設定都要寫在 clie
 claude mcp add foodpanda --scope user \
   -e FOODPANDA_LATITUDE=25.0330 \
   -e FOODPANDA_LONGITUDE=121.5654 \
-  -e FOODPANDA_HEADLESS=0 \
   -- node /絕對路徑/foodpanda-mcp-tw/build/index.js
 ```
 
@@ -118,7 +118,6 @@ args = ["/絕對路徑/foodpanda-mcp-tw/build/index.js"]
 [mcp_servers.foodpanda.env]
 FOODPANDA_LATITUDE = "25.0330"
 FOODPANDA_LONGITUDE = "121.5654"
-FOODPANDA_HEADLESS = "0"
 ```
 
 **不要**把 Codex 設成會自動核准 MCP tool 呼叫的模式來使用這個 server；`place_order` 每次都必須由你親自核准。
@@ -135,8 +134,7 @@ FOODPANDA_HEADLESS = "0"
       "args": ["/絕對路徑/foodpanda-mcp-tw/build/index.js"],
       "env": {
         "FOODPANDA_LATITUDE": "25.0330",
-        "FOODPANDA_LONGITUDE": "121.5654",
-        "FOODPANDA_HEADLESS": "0"
+        "FOODPANDA_LONGITUDE": "121.5654"
       }
     }
   }
@@ -187,7 +185,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 
 | 變數 | 預設 | 說明 |
 |---|---|---|
-| `FOODPANDA_HEADLESS` | `1`（開） | 瀏覽器不顯示視窗。**要用 `refresh_token` 登入必須設為 `0`**，否則登入會直接回錯誤。 |
+| `FOODPANDA_HEADLESS` | `0`（關） | 設為 `1` 時瀏覽器不顯示視窗。**不建議開啟**：foodpanda 的防機器人機制（PerimeterX）會擋 headless 瀏覽器，搜尋時就會回「Access denied」；`refresh_token` 登入也需要看得到的視窗，開啟時會直接回錯誤。 |
 | `FOODPANDA_STATE_DIR` | `~/.foodpanda-mcp` | 放 `token.json`、瀏覽器設定檔 `browser-data/`，以及下單狀態不明時的鎖定檔 `order-check-required.json` |
 | `FOODPANDA_SESSION_TOKEN` | 未設定 | 自行提供 token（不建議，見下方）。過期的會被忽略。 |
 
@@ -211,7 +209,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
 
 不需要從瀏覽器開發者工具複製 token。流程是：
 
-1. 在 client 設定的 `env` 裡加上 `FOODPANDA_HEADLESS=0`，重新啟動 client。
+1. 確認 client 設定裡沒有 `FOODPANDA_HEADLESS=1`（預設就是關閉，不用另外設定）。
 2. 請 AI 呼叫 **`refresh_token`**。server 會打開一個看得到的瀏覽器視窗，開啟 www.foodpanda.com.tw。
 3. 你**自己**在視窗裡登入（含 CAPTCHA、簡訊或 e-mail 驗證碼）。預設等 120 秒，可以請 AI 帶 `timeout` 參數延長。
 4. 網頁送出的 Bearer token 會被自動擷取，存到 `$FOODPANDA_STATE_DIR/token.json`（權限 0600），
@@ -344,7 +342,7 @@ tool 說明裡已明確寫：AI 必須先把 `prepare_order` 的內容完整給�
 但 foodpanda 網站改版後可能失效，此時錯誤訊息會指出是哪一個。重新取得：
 
 ```bash
-FOODPANDA_HEADLESS=0 node scripts/discover-hashes.mjs
+node scripts/discover-hashes.mjs
 # 搜尋關鍵字預設是「麥當勞」，可以用 FOODPANDA_DISCOVER_QUERY 改
 ```
 
@@ -362,7 +360,8 @@ FOODPANDA_GQL_PRODUCT_HASH=...
 
 ## PerimeterX 防機器人機制
 
-> 本節是香港版實測的經驗，台灣站尚未驗證。
+> 本節大多是香港版實測的經驗。台灣站已確認的一點：headless 瀏覽器在搜尋時就會被回「Access denied」，
+> 所以 `FOODPANDA_HEADLESS` 預設是關閉的。
 
 `*.fd-api.com` 前面有 PerimeterX。能不能通過，看的不是你在哪個國家，而是瀏覽器像不像自動化程式：
 
