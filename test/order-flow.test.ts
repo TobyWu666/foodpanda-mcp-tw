@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
-import { FoodpandaClient, type HttpFunction } from "../src/foodpanda-client.js";
+import { FoodpandaClient, type FoodpandaClientOptions, type HttpFunction } from "../src/foodpanda-client.js";
 import { OrderGuard } from "../src/order-guard.js";
 
 const fixture = (name: string) =>
@@ -86,9 +86,13 @@ function fakeFoodpanda() {
   return { http, calls, state, checkouts };
 }
 
-async function setup(guard?: OrderGuard, lockFile: string | null = null) {
+async function setup(
+  guard?: OrderGuard,
+  lockFile: string | null = null,
+  confirmSend?: FoodpandaClientOptions["confirmSend"]
+) {
   const fake = fakeFoodpanda();
-  const fp = new FoodpandaClient(null, 25.033964, 121.564468, { http: fake.http, guard, lockFile });
+  const fp = new FoodpandaClient(null, 25.033964, 121.564468, { http: fake.http, guard, lockFile, confirmSend });
   const server = createServer(fp);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
@@ -533,4 +537,85 @@ test("a login token counts only when /api/v5/customers knows the account", async
     check(async () => ({ status: 403, ok: false, text: "<title>Access to this page has been denied</title>" })),
     /PerimeterX/
   );
+});
+
+test("with a send confirmation, a 'no' sends nothing and needs a new prepare_order", async () => {
+  const asked: any[] = [];
+  const { fake, call, close } = await setup(undefined, null, async (order) => {
+    asked.push(order);
+    return false;
+  });
+  try {
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call, "cash");
+    const res = await call("place_order", { confirmation_code });
+    assert.equal(res.isError, true);
+    assert.match(res.text, /Not sent/);
+    assert.equal(fake.checkouts().length, 0);
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0].total, 366);
+    assert.equal(asked[0].currency, "TWD");
+    assert.equal(asked[0].items[0].quantity, 1);
+    assert.equal(asked[0].delivery_instructions, "放門口");
+
+    // The code is spent; a declined send is not a "status unknown", so prepare_order works again.
+    assert.equal((await call("place_order", { confirmation_code })).isError, true);
+    assert.equal(fake.checkouts().length, 0);
+    await prepare(call, "cash");
+  } finally {
+    await close();
+  }
+});
+
+test("with a send confirmation, a 'yes' sends checkout exactly once; a failing dialog counts as 'no'", async () => {
+  {
+    const { fake, call, close } = await setup(undefined, null, async () => true);
+    try {
+      await fillCart(call);
+      const { confirmation_code } = await prepare(call);
+      const res = await call("place_order", { confirmation_code });
+      assert.equal(res.isError, false, res.text);
+      assert.equal(fake.checkouts().length, 1);
+    } finally {
+      await close();
+    }
+  }
+  {
+    const { fake, call, close } = await setup(undefined, null, async () => {
+      throw new Error("osascript missing");
+    });
+    try {
+      await fillCart(call);
+      const { confirmation_code } = await prepare(call);
+      const res = await call("place_order", { confirmation_code });
+      assert.equal(res.isError, true);
+      assert.match(res.text, /Not sent/);
+      assert.equal(fake.checkouts().length, 0);
+    } finally {
+      await close();
+    }
+  }
+});
+
+test("a cart change while the person decides stops the order even if they say yes", async () => {
+  let callTool: ((n: string, a?: Record<string, unknown>) => Promise<{ isError: boolean; text: string }>) | undefined;
+  const { fake, call, close } = await setup(undefined, null, async () => {
+    const res = await callTool!("add_to_cart", {
+      restaurant_id: "test01",
+      items: [{ item_id: MEAL, quantity: 1, topping_ids: MEAL_CHOICES }],
+    });
+    assert.equal(res.isError, false, res.text);
+    return true;
+  });
+  callTool = call;
+  try {
+    await fillCart(call);
+    const { confirmation_code } = await prepare(call);
+    const res = await call("place_order", { confirmation_code });
+    assert.equal(res.isError, true);
+    assert.match(res.text, /changed while waiting/);
+    assert.equal(fake.checkouts().length, 0);
+  } finally {
+    await close();
+  }
 });

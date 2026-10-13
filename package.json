@@ -4,14 +4,16 @@
   "description": "MCP server for ordering food from foodpanda.ph via AI assistants",
   "type": "module",
   "bin": {
-    "foodpanda-mcp": "./build/index.js"
+    "foodpanda-mcp": "./build/index.js",
+    "foodpanda-mcp-http": "./build/http-main.js"
   },
   "scripts": {
-    "build": "tsc && chmod 755 build/index.js",
+    "build": "tsc && chmod 755 build/index.js build/http-main.js",
     "dev": "tsc --watch",
     "start": "node build/index.js",
     "prepublishOnly": "npm run build",
-    "test": "tsc -p tsconfig.test.json && node --test build/test/test/*.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test build/test/test/*.test.js",
+    "start:http": "node build/http-main.js"
   },
   "files": [
     "build"

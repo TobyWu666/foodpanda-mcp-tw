@@ -5,7 +5,12 @@ import { refreshTokenViaBrowser, persistToken } from "./token-manager.js";
 import { getRegionConfig } from "./config.js";
 import { PLACE_ORDER_DESCRIPTION_NOTE, PREPARE_ORDER_DESCRIPTION_NOTE } from "./order-guard.js";
 
-export function createServer(client: FoodpandaClient): McpServer {
+export interface CreateServerOptions {
+  /** Appended to place_order's description, e.g. how the HTTP server asks a person first. */
+  placeOrderNote?: string;
+}
+
+export function createServer(client: FoodpandaClient, options: CreateServerOptions = {}): McpServer {
   const region = getRegionConfig();
   const server = new McpServer(
     {
@@ -432,7 +437,8 @@ export function createServer(client: FoodpandaClient): McpServer {
     "place_order",
     {
       title: "Place Order (step 2 of 2)",
-      description: "Step 2 of 2. " + PLACE_ORDER_DESCRIPTION_NOTE,
+      description:
+        "Step 2 of 2. " + PLACE_ORDER_DESCRIPTION_NOTE + (options.placeOrderNote ? " " + options.placeOrderNote : ""),
       inputSchema: z.object({
         confirmation_code: z.string().describe("The confirmation code returned by prepare_order"),
       }),

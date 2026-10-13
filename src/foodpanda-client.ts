@@ -13,7 +13,7 @@ import type {
   CustomerProfile,
   DeliveryAddress,
 } from "./types.js";
-import { OrderConfirmationError, OrderGuard, type OrderSnapshot } from "./order-guard.js";
+import { OrderConfirmationError, OrderGuard, fingerprintOrder, type OrderSnapshot } from "./order-guard.js";
 import {
   type PaymentMethodChoice,
   UnsupportedPaymentMethodError,
@@ -107,6 +107,37 @@ export interface FoodpandaClientOptions {
   guard?: OrderGuard;
   /** Where the "check the app first" lock is kept; null keeps it in memory. Default: the state dir. */
   lockFile?: string | null;
+  /**
+   * Asked right before checkout is sent; the order goes out only if it resolves true.
+   * Set by the HTTP server so a person confirms on the computer running it, outside
+   * the AI client (see send-confirmation.ts).
+   */
+  confirmSend?: (order: SendConfirmationRequest) => Promise<boolean>;
+}
+
+/** What a person is shown before an order is sent. */
+export interface SendConfirmationRequest {
+  restaurant: string;
+  items: Array<{ name: string; quantity: number }>;
+  total: number;
+  currency: string;
+  payment: string;
+  address: string;
+  delivery_instructions: string;
+}
+
+/** The person did not confirm the send; nothing was ordered. */
+export class OrderNotConfirmedError extends Error {
+  readonly code = "ORDER_NOT_CONFIRMED";
+
+  constructor() {
+    super(
+      "Not sent: the order was not confirmed on the computer running foodpanda-mcp (cancelled, timed out, " +
+        "or no one there). Nothing was ordered and the code is spent. If the user still wants it, call " +
+        "prepare_order again and ask them to press the confirm button on that computer."
+    );
+    this.name = "OrderNotConfirmedError";
+  }
 }
 
 /** What prepareOrder locked; place_order rebuilds the order from it. */
@@ -192,6 +223,7 @@ export class FoodpandaClient {
   /** Set when a checkout was sent but its outcome is unknown; survives restarts. */
   private readonly orderCheckLock: OrderCheckLockStore;
   private readonly http: HttpFunction | undefined;
+  private readonly confirmSend: FoodpandaClientOptions["confirmSend"];
 
   constructor(
     sessionToken: string | null,
@@ -200,6 +232,7 @@ export class FoodpandaClient {
     options: FoodpandaClientOptions = {}
   ) {
     this.http = options.http;
+    this.confirmSend = options.confirmSend;
     this.orderCheckLock = new OrderCheckLockStore(
       options.lockFile !== undefined
         ? options.lockFile
@@ -1046,13 +1079,40 @@ export class FoodpandaClient {
         webHost: cfg.webHost,
         currency: cfg.currency,
       });
+      // Freeze what will be sent before anyone is asked, so nothing can change it meanwhile.
+      const sendBody = JSON.stringify(body);
+
+      if (this.confirmSend) {
+        let confirmed = false;
+        try {
+          confirmed = await this.confirmSend({
+            restaurant: this.cartVendorName,
+            items: this.cartItems.map((i) => ({ name: i.name, quantity: i.quantity })),
+            total: current.total,
+            currency: cfg.currency,
+            payment: option.label,
+            address: current.address.text,
+            delivery_instructions: prepared.deliveryInstructions,
+          });
+        } catch (err) {
+          console.error("foodpanda-mcp: asking for confirmation failed:", redactForLog((err as Error).message));
+        }
+        if (!confirmed) throw new OrderNotConfirmedError();
+        // The cart can be edited by other tool calls while the person decides.
+        if (fingerprintOrder(this.orderSnapshot(customer, address, option, prepared.deliveryInstructions)) !== fingerprintOrder(current)) {
+          throw new OrderConfirmationError(
+            "changed",
+            "The cart changed while waiting for confirmation. Nothing was sent. Call prepare_order again."
+          );
+        }
+      }
 
       let resp: unknown;
       try {
         // restRequestOnce, never restRequest: a checkout must not be retried.
         resp = await this.restRequestOnce<unknown>("/api/v5/cart/checkout", {
           method: "POST",
-          body: JSON.stringify(body),
+          body: sendBody,
           headers: {
             "dps-session-id": this.dpsSessionId(),
             "x-caller-platform": "mfe",
