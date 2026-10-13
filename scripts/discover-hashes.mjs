@@ -8,7 +8,7 @@
  * `PersistedQueryNotFound`.
  *
  * How: open the storefront through the same browser transport the MCP server uses, so this
- * script inherits the Xvfb-backed headed browser, the PerimeterX warm-up (with profile reset
+ * script inherits the headed browser (Xvfb-backed on a Linux server), the PerimeterX warm-up (with profile reset
  * on a challenge) and the proxy if one is configured — then read the hashes straight off the
  * app's own /graphql requests.
  *
@@ -89,7 +89,7 @@ try {
   console.error(`\nCould not get past PerimeterX: ${err.message.split("\n")[0]}`);
   console.error(
     "A headed browser is required (PerimeterX blocks headless ones). Set FOODPANDA_HEADLESS=0;\n" +
-      "the transport starts its own Xvfb, so Xvfb must be installed."
+      "on a Linux server without DISPLAY the transport starts its own Xvfb, so Xvfb must be installed there."
   );
   await transport.close().catch(() => {});
   process.exit(2);

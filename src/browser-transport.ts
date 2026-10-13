@@ -47,6 +47,39 @@ export function proxyOptions(url: string): { server: string; username?: string; 
   }
 }
 
+/** How the browser gets a screen. */
+export type DisplayPlan =
+  | { kind: "none" } // headless, or the OS's own window system (macOS, Windows)
+  | { kind: "existing"; display: string } // an X server the user already runs
+  | { kind: "xvfb" }; // start a private Xvfb (Linux server with no screen)
+
+/**
+ * Decide where a headed browser draws. Xvfb only exists for X11 on Linux: macOS and
+ * Windows open the window on their own display.
+ */
+export function planDisplay(input: {
+  headless: boolean;
+  autoXvfb: boolean;
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+}): DisplayPlan {
+  if (input.headless) return { kind: "none" }; // new-headless needs no X server
+  if (input.env.DISPLAY) return { kind: "existing", display: input.env.DISPLAY };
+  if (input.platform !== "linux") return { kind: "none" };
+  if (!input.autoXvfb) return { kind: "none" };
+  return { kind: "xvfb" };
+}
+
+/** What the display code touches outside the process; replaced in tests. */
+export interface DisplayDeps {
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  spawn?: (command: string, args: string[], options: { stdio: "ignore" }) => ChildProcess;
+  socketExists?: (path: string) => boolean;
+  config?: () => { headless: boolean; autoXvfb: boolean };
+  pollMs?: number;
+}
+
 export class BrowserTransport {
   private context: any = null;
   private launch: Promise<any> | null = null;
@@ -55,24 +88,49 @@ export class BrowserTransport {
   private display: string | null = null;
   private page: any = null;
 
+  constructor(private readonly deps: DisplayDeps = {}) {}
+
   /**
-   * A headed browser is what gets past PerimeterX, but a server has no screen. Start a
-   * private Xvfb when needed and hand its DISPLAY to the browser process.
+   * A headed browser is what gets past PerimeterX, but a server has no screen. On Linux
+   * with no DISPLAY, start a private Xvfb and hand its DISPLAY to the browser process.
+   * Everywhere else the browser uses the native display.
    */
   private async ensureDisplay(): Promise<string | undefined> {
-    const cfg = getRegionConfig();
-    if (cfg.headless) return undefined; // new-headless needs no X server
-    if (process.env.DISPLAY) return process.env.DISPLAY;
-    if (!cfg.autoXvfb) return undefined;
+    const cfg = (this.deps.config ?? getRegionConfig)();
+    const plan = planDisplay({
+      headless: cfg.headless,
+      autoXvfb: cfg.autoXvfb,
+      platform: this.deps.platform ?? process.platform,
+      env: this.deps.env ?? process.env,
+    });
+    if (plan.kind === "none") return undefined;
+    if (plan.kind === "existing") return plan.display;
     if (this.display) return this.display;
 
+    const spawnXvfb = this.deps.spawn ?? spawn;
+    const socketExists = this.deps.socketExists ?? existsSync;
+    const pollMs = this.deps.pollMs ?? 250;
     for (const n of [99, 98, 97, 96, 95]) {
-      if (existsSync(`/tmp/.X11-unix/X${n}`)) continue;
-      const child = spawn(
-        "Xvfb",
-        [`:${n}`, "-screen", "0", "1440x900x24", "-nolisten", "tcp"],
-        { stdio: "ignore" }
-      );
+      const socket = `/tmp/.X11-unix/X${n}`;
+      if (socketExists(socket)) continue;
+      let failed = null as Error | null;
+      let child: ChildProcess;
+      try {
+        child = spawnXvfb("Xvfb", [`:${n}`, "-screen", "0", "1440x900x24", "-nolisten", "tcp"], {
+          stdio: "ignore",
+        });
+      } catch (err) {
+        throw xvfbError(err);
+      }
+      // Without a listener, a failed spawn (ENOENT: Xvfb not installed) is an
+      // unhandled 'error' event and takes the whole MCP server down.
+      child.on("error", (err) => {
+        failed = err;
+        if (this.xvfb === child) {
+          this.xvfb = null;
+          this.display = null;
+        }
+      });
       child.on("exit", () => {
         if (this.xvfb === child) {
           this.xvfb = null;
@@ -82,20 +140,19 @@ export class BrowserTransport {
       this.xvfb = child;
 
       for (let i = 0; i < 40; i++) {
-        if (existsSync(`/tmp/.X11-unix/X${n}`)) {
+        if (failed) break;
+        if (socketExists(socket)) {
           this.display = `:${n}`;
           console.error(`foodpanda-mcp: started Xvfb on DISPLAY=${this.display}`);
           return this.display;
         }
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, pollMs));
       }
+      if (this.xvfb === child) this.xvfb = null;
+      if (failed) throw xvfbError(failed);
       child.kill();
-      this.xvfb = null;
     }
-    throw new Error(
-      "Could not start Xvfb (is it installed? 'which Xvfb'). " +
-        "A headed browser is required to clear PerimeterX, so install Xvfb or provide DISPLAY yourself."
-    );
+    throw xvfbError(null);
   }
 
   private async getBrowser(): Promise<BrowserLike> {
@@ -284,6 +341,15 @@ export class BrowserTransport {
       this.display = null;
     }
   }
+}
+
+function xvfbError(cause: unknown): Error {
+  const code = (cause as NodeJS.ErrnoException | null)?.code;
+  const why = code === "ENOENT" ? "Xvfb is not installed" : cause ? String((cause as Error).message ?? cause) : "it did not come up";
+  return new Error(
+    `Could not start Xvfb (${why}). A headed browser is required to clear PerimeterX: ` +
+      "install Xvfb (apt-get install xvfb), set DISPLAY to a running X server, or run on a desktop."
+  );
 }
 
 let singleton: BrowserTransport | null = null;
