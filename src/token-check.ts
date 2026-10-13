@@ -29,16 +29,29 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | null 
 }
 
 /**
+ * When the token expires, in seconds since epoch, or null if it does not say.
+ * `exp` is the standard JWT claim. The TW token has no `exp` but an `expires` claim in
+ * seconds (live run 2026-10-13, about an hour after login); it is used only when it reads
+ * as a timestamp, so a value that might be a duration is never misread as a date.
+ */
+export function tokenExpiry(payload: Record<string, unknown>): number | null {
+  for (const claim of ["exp", "expires"]) {
+    const value = payload[claim];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 1e9) return value;
+  }
+  return null;
+}
+
+/**
  * Why this token should not be used, or null if it is fine.
- * `exp` is the standard JWT expiry claim (seconds since epoch); a token without
- * one is accepted and left for the API to judge.
+ * A token without a readable expiry is accepted and left for the API to judge.
  */
 export function tokenProblem(token: string, nowMs: number = Date.now()): string | null {
   const payload = decodeJwtPayload(token);
   if (!payload) return "not a JWT";
-  const exp = payload.exp;
-  if (typeof exp === "number" && exp * 1000 <= nowMs) {
-    return `expired at ${new Date(exp * 1000).toISOString()}`;
+  const expiry = tokenExpiry(payload);
+  if (expiry !== null && expiry * 1000 <= nowMs) {
+    return `expired at ${new Date(expiry * 1000).toISOString()}`;
   }
   return null;
 }

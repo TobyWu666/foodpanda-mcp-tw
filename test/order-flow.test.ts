@@ -33,6 +33,7 @@ interface Call {
   path: string;
   body: any;
   headers: Record<string, string>;
+  via?: string;
 }
 
 /** A stand-in for foodpanda that answers from the masked capture. */
@@ -52,7 +53,7 @@ function fakeFoodpanda() {
     const u = new URL(url);
     const method = (init.method ?? "GET").toUpperCase();
     const body = init.body ? JSON.parse(init.body) : null;
-    calls.push({ method, path: u.pathname, body, headers: init.headers ?? {} });
+    calls.push({ method, path: u.pathname, body, headers: init.headers ?? {}, via: init.via });
     const ok = (value: unknown) => ({ status: 200, ok: true, text: JSON.stringify(value) });
 
     if (u.pathname === "/graphql") {
@@ -131,6 +132,7 @@ test("prepare_order shows everything that will be ordered and locks it with a co
     assert.equal(summary.subtotal, 278);
     assert.equal(summary.service_fee, 19);
     assert.equal(summary.total, 366);
+    assert.equal(summary.other_charges, undefined, "the captured parts add up to the total");
     assert.equal(summary.currency, "TWD");
     assert.equal(summary.payment_method.payment_method, "linepay");
     assert.equal(summary.delivery_address.id, 990000001);
@@ -142,6 +144,13 @@ test("prepare_order shows everything that will be ordered and locks it with a co
     assert.deepEqual(calc.body.payment, selection.linepay.request.payment);
     assert.equal(calc.body.expedition.latitude, 25.033964);
     assert.equal(fake.checkouts().length, 0, "prepare_order never checks out");
+
+    // The storefront page cannot read GET /api/v5/customers ("Failed to fetch" in the live
+    // run), so it goes through the browser context; the addresses still come from the page.
+    const customers = fake.calls.filter((c) => c.path === "/api/v5/customers");
+    assert.ok(customers.length > 0);
+    assert.ok(customers.every((c) => c.via === "context"));
+    assert.ok(fake.calls.filter((c) => c.path === "/api/v5/customers/addresses").every((c) => c.via === undefined));
   } finally {
     await close();
   }
@@ -497,4 +506,31 @@ test("if the lock file cannot be written, place_order still says 'status unknown
     await close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a login token counts only when /api/v5/customers knows the account", async () => {
+  const answer = (status: number, value: unknown) => async () => ({
+    status,
+    ok: status >= 200 && status < 300,
+    text: JSON.stringify(value),
+  });
+  const check = (http: HttpFunction) =>
+    new FoodpandaClient(null, 25.033964, 121.564468, { http, lockFile: null }).isAccountToken("a.b.c");
+
+  let seen: { auth?: string; via?: string; noWarmUp?: boolean } = {};
+  const record: HttpFunction = async (url, init) => {
+    seen = { auth: init.headers?.Authorization, via: init.via, noWarmUp: init.noWarmUp };
+    return answer(200, customer)();
+  };
+  assert.equal(await check(record), true);
+  // Its own token, from the browser context, without navigating the login page.
+  assert.deepEqual(seen, { auth: "Bearer a.b.c", via: "context", noWarmUp: true });
+
+  assert.equal(await check(answer(401, {})), false);
+  assert.equal(await check(answer(412, {})), false);
+  assert.equal(await check(answer(200, { status_code: 200, data: {} })), false, "no customer id");
+  await assert.rejects(
+    check(async () => ({ status: 403, ok: false, text: "<title>Access to this page has been denied</title>" })),
+    /PerimeterX/
+  );
 });

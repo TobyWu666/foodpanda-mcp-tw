@@ -26,6 +26,13 @@ test("expired tokens are rejected, live or exp-less ones accepted", () => {
   assert.equal(tokenProblem("garbage", NOW), "not a JWT");
 });
 
+test("the TW token's `expires` claim (no `exp`) is read as its expiry", () => {
+  assert.match(tokenProblem(jwt({ expires: past, user_id: "u1" }), NOW) ?? "", /expired/);
+  assert.equal(tokenProblem(jwt({ expires: future }), NOW), null);
+  // A small number might be a lifetime, not a date: left for the API to judge.
+  assert.equal(tokenProblem(jwt({ expires: 3600 }), NOW), null);
+});
+
 test("a token saved for another region is rejected", () => {
   const data = { token: jwt({ exp: future }), savedAt: "x", region: "https://hk.fd-api.com" };
   assert.match(persistedTokenProblem(data, TW, NOW) ?? "", /saved for https:\/\/hk\.fd-api\.com/);
