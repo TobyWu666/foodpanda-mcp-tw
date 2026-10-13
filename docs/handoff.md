@@ -45,7 +45,7 @@
    - `TRUST_PROXY=0` 時：任何人猜錯 5 次，就能讓擁有者 **15 分鐘不能登入**。
    - 修好之前，在通道後面請用 `TRUST_PROXY=0`。代價是別人可以把擁有者暫時鎖在外面，但密碼不會被無限次猜。
 2. **手機 App 可以把 `submit_order` 設成 allow。** 設了之後，每一筆訂單都會自動核准，**沒有人確認就下單**。
-   修好之前，`submit_order` 要維持 `require_approval`（每筆都要人按核准），**絕對不要**改成 allow。
+   修好之前，`submit_order` 要維持 `require_approval`（每筆都要人按核准）；不想讓它下單時設成 `deny`；**絕對不要**改成 allow。
 
 在這兩個修好、而且帳號擁有者決定要下第一筆真訂單之前，`FOODPANDA_TW_REAL_ORDERS` 保持 `0`（不設也一樣是關閉），
 這樣 `submit_order` 不會真的下單。
