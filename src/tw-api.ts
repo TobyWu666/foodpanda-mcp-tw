@@ -11,6 +11,7 @@ import type {
   CartItem,
   CartProductPayload,
   CartVendorPayload,
+  DeliveryAddress,
   MenuCategory,
   MenuItem,
   Restaurant,
@@ -18,6 +19,7 @@ import type {
   ScheduleEntry,
   ToppingGroup,
 } from "./types.js";
+import { type PaymentMethodChoice, UnsupportedPaymentMethodError } from "./payment-method.js";
 
 // ----------------------------------------------------------------
 // GraphQL operations
@@ -555,4 +557,485 @@ export function cartItemsOf(
       is_available: line.isAvailable,
     };
   });
+}
+
+// ----------------------------------------------------------------
+// Payment (bound LINE Pay and cash only)
+// ----------------------------------------------------------------
+
+/**
+ * foodpanda's own ids for the two methods this server may use, from the tw capture:
+ * the purchase/intent method name and the displayable_name the web app puts in
+ * cart/calculate payment.methods[0] when the method is selected.
+ */
+export const FOODPANDA_PAYMENT_METHODS: Record<
+  PaymentMethodChoice,
+  { method: string; displayableName: string; label: string }
+> = {
+  linepay: {
+    method: "line_pay",
+    displayableName: "NEXTGEN_PAYMENT_SELECTION_LINE_PAY",
+    label: "LINE Pay (bound account)",
+  },
+  cash: {
+    method: "payment_on_delivery",
+    displayableName: "NEXTGEN_PAYMENT_SELECTION_PAYMENT_ON_DELIVERY",
+    label: "Cash on delivery",
+  },
+};
+
+/** A payment method the account can use for this order, with the instrument to charge. */
+export interface PaymentOption {
+  choice: PaymentMethodChoice;
+  method: string;
+  displayableName: string;
+  /** publicId of the saved instrument (the bound LINE Pay account, or the cash instrument). */
+  publicId: string;
+  label: string;
+}
+
+export interface PurchaseIntent {
+  intentId: string;
+  options: PaymentOption[];
+  /** Methods foodpanda offers that this server will not use (shown to the user, never used). */
+  notSupported: string[];
+  /** Supported methods that are not usable right now, and why. */
+  unavailable: Array<{ choice: PaymentMethodChoice; reason: string }>;
+}
+
+/** The purchase/intent body, exactly as the tw web app sends it. */
+export function purchaseIntentRequest(
+  vendorCode: string,
+  subtotal: number,
+  total: number,
+  currency: string
+): Record<string, unknown> {
+  return {
+    subtotal,
+    currency,
+    vendorCode,
+    amount: total,
+    emoneyAmountToUse: 0,
+    expeditionType: "delivery",
+    paymentLimits: [
+      { limitCode: "foodafterdiscount", limitAmount: subtotal },
+      { limitCode: "orderamountwithoutpaymentfee", limitAmount: total },
+    ],
+  };
+}
+
+/**
+ * Which of LINE Pay and cash the account can use. LINE Pay counts only with a saved
+ * (bound) instrument: without one, paying would need the LINE app, which this
+ * server cannot do.
+ */
+export function parsePurchaseIntent(resp: any): PurchaseIntent {
+  const data = resp?.data;
+  const intentId = data?.purchaseIntent?.id;
+  if (typeof intentId !== "string" || !intentId) {
+    throw new Error("purchase/intent returned no purchase intent id.");
+  }
+  const methods: any[] = data?.paymentMethodDetails?.paymentMethods ?? [];
+  const options: PaymentOption[] = [];
+  const unavailable: PurchaseIntent["unavailable"] = [];
+  const notSupported: string[] = [];
+
+  for (const choice of Object.keys(FOODPANDA_PAYMENT_METHODS) as PaymentMethodChoice[]) {
+    const ids = FOODPANDA_PAYMENT_METHODS[choice];
+    const pm = methods.find((m) => m?.name === ids.method);
+    if (!pm || pm.hidden) {
+      unavailable.push({ choice, reason: "not offered for this order" });
+      continue;
+    }
+    if (pm.status !== "HEALTHY") {
+      unavailable.push({ choice, reason: `status ${pm.status ?? "unknown"}` });
+      continue;
+    }
+    const instruments: any[] = (pm.paymentInstruments ?? []).filter(
+      (i: any) => i?.status === "HEALTHY" && typeof i?.publicId === "string" && i.publicId
+    );
+    if (instruments.length === 0) {
+      unavailable.push({
+        choice,
+        reason: choice === "linepay" ? "no bound LINE Pay account" : "no usable instrument",
+      });
+      continue;
+    }
+    const instrument = instruments.find((i) => i.preferred) ?? instruments[0];
+    const shown = instrument.publicFields?.displayValue;
+    options.push({
+      choice,
+      method: ids.method,
+      displayableName: ids.displayableName,
+      publicId: instrument.publicId,
+      label: choice === "linepay" && shown ? `${ids.label} ${shown}` : ids.label,
+    });
+  }
+
+  const ours = new Set(Object.values(FOODPANDA_PAYMENT_METHODS).map((m) => m.method));
+  for (const pm of methods) {
+    if (pm && !pm.hidden && typeof pm.name === "string" && !ours.has(pm.name)) notSupported.push(pm.name);
+  }
+  return { intentId, options, notSupported, unavailable };
+}
+
+/** The cart/calculate body with a payment method selected, as the web app sends it. */
+export function withPaymentMethod(
+  request: CartCalculateRequest,
+  option: PaymentOption,
+  amount: number
+): CartCalculateRequest {
+  return {
+    ...request,
+    payment: {
+      ...request.payment,
+      methods: [
+        {
+          method: option.method,
+          amount,
+          publicId: option.publicId,
+          displayable_name: option.displayableName,
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * foodpanda echoes the selected method in the calculate response. Anything else
+ * means it did not take our choice, and we must not carry on with another method.
+ */
+export function checkCalculatedPayment(resp: any, option: PaymentOption): void {
+  const methods: any[] = resp?.payment?.methods ?? [];
+  if (methods.length !== 1 || methods[0]?.method !== option.method) {
+    const got = methods.map((m) => m?.method ?? "?").join(", ") || "none";
+    throw new UnsupportedPaymentMethodError(
+      `${option.choice} (foodpanda answered with: ${got})`,
+      []
+    );
+  }
+}
+
+// ----------------------------------------------------------------
+// Checkout
+// ----------------------------------------------------------------
+
+export interface CheckoutInput {
+  products: CartProductPayload[];
+  /** Menu data for each cart line, for the descriptive fields checkout carries. */
+  menuItem: (productId: number) => MenuItem | undefined;
+  vendor: CartVendorPayload;
+  customer: { id: string; email: string };
+  /** The saved address, as returned by /customers/addresses. */
+  address: DeliveryAddress;
+  deliveryInstructions: string;
+  total: number;
+  intentId: string;
+  option: PaymentOption;
+  webHost: string;
+  currency: string;
+}
+
+/**
+ * The cart/checkout body. UNVERIFIED FOR TW: checkout was never captured on
+ * foodpanda.com.tw (no order was placed while recording), so this is the upstream
+ * HK/PH structure filled with tw values. The payment entry follows the upstream
+ * format { amount, metadata: { token: publicId }, method }.
+ */
+export function buildCheckoutRequest(input: CheckoutInput): Record<string, unknown> {
+  const { address } = input;
+  const products = input.products.map((p) => {
+    const menuItem = input.menuItem(p.id);
+    return {
+      description: menuItem?.description ?? "",
+      priceBeforeDiscount: null,
+      name: menuItem?.name ?? p.variation_name,
+      vat_percentage: p.vat_percentage,
+      discount: null,
+      special_instructions: p.special_instructions,
+      variation_name: "",
+      sold_out_option: p.sold_out_option,
+      toppings: p.toppings,
+      price: p.price,
+      packaging_price: p.packaging_charge,
+      original_price: p.original_price,
+      quantity: p.quantity,
+      quantity_auto_added: 0,
+      id: p.id,
+      variation_id: p.variation_id,
+      is_available: true,
+      is_alcoholic_item: false,
+      total_price: p.price * p.quantity,
+      total_price_before_discount: p.price * p.quantity,
+      products: [],
+      product_variation_id: p.variation_id,
+      product_id: p.id,
+      sold_out_options: [
+        { default: true, option: "REFUND", text: "NEXTGEN_SoldOutOptions_Refund" },
+        { default: false, option: "CALL_CUSTOMER", text: "NEXTGEN_SoldOutOptions_CALL_CUSTOMER" },
+      ],
+      product_variations: [
+        {
+          id: p.variation_id,
+          code: p.variation_code,
+          remote_code: p.variation_code,
+          container_price: 0,
+          price: p.price,
+          topping_ids: p.toppings.map((t) => t.id),
+          topping_properties: [],
+          unit_pricing: null,
+          total_price: 0,
+          dietary_attributes: {},
+        },
+      ],
+      code: p.code,
+      variation_code: p.variation_code,
+      is_bundle: false,
+      tags: [],
+      imageUrl: menuItem?.image_url ?? "",
+      initial_price: p.price,
+      initial_original_price: p.original_price,
+      product_type: "",
+    };
+  });
+
+  return {
+    platform: "b2c",
+    expected_total_amount: input.total,
+    customer: {
+      id: input.customer.id,
+      email: input.customer.email,
+      address_id: String(address.id),
+      age_verification_token: "",
+    },
+    expedition: {
+      delivery_address: {
+        ...address,
+        id: String(address.id),
+        type: String(address.type),
+        location_type: "polygon",
+        object_type: "saved address",
+      },
+      type: "delivery",
+      latitude: address.latitude,
+      longitude: address.longitude,
+      instructions: input.deliveryInstructions,
+      delivery_instructions_tags: [] as string[],
+      delivery_option: "standard",
+    },
+    order_time: "now",
+    source: "volo",
+    vendor: input.vendor,
+    products,
+    payment: {
+      client_redirect_url: `${input.webHost}/payments/handle-payment/`,
+      purchase_intent_id: input.intentId,
+      currency: input.currency,
+      methods: [
+        {
+          amount: input.total,
+          metadata: { token: input.option.publicId },
+          method: input.option.method,
+        },
+      ],
+    },
+    voucher: "",
+    voucher_context: { construct_id: "" },
+    bypass_duplicate_order_check: false,
+    supported_features: {
+      support_banned_products_soft_fail: true,
+      small_order_fee_enabled: true,
+      "pd-tx-cash-to-online-payment-surcharge": false,
+    },
+    joker_offer_id: "",
+    joker: { single_discount: true },
+  };
+}
+
+/** Said on every checkout outcome we cannot confirm: the order may or may not exist. */
+export const CHECK_THE_APP =
+  "Do not retry and do not call place_order again: check the foodpanda app or website for the order first.";
+
+/**
+ * checkout was sent but did not come back as a clear, finished order. The order
+ * may exist, may be waiting for a payment step, or may not exist.
+ */
+export class CheckoutStatusUnknownError extends Error {
+  readonly code = "CHECKOUT_STATUS_UNKNOWN";
+  constructor(detail: string) {
+    super(`The order status is unknown: ${detail} ${CHECK_THE_APP}`);
+    this.name = "CheckoutStatusUnknownError";
+  }
+}
+
+export interface CheckoutOutcome {
+  orderCode: string;
+  /** The success status foodpanda reported (never assumed). */
+  status: string;
+  estimatedDelivery: string;
+  /** The total foodpanda reported for the order, if the response carries one. */
+  reportedTotal: number | null;
+  /** The payment methods foodpanda reported for the order, if the response carries them. */
+  reportedMethods: string[] | null;
+}
+
+/** paymentStatus -> payment_status, so camelCase and snake_case keys are read alike. */
+function normaliseKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[-\s]+/g, "_").toLowerCase();
+}
+
+/** A status / result / state field, however it is prefixed (payment_status, orderStatus, ...). */
+const STATUS_KEY = /(^|_)(status|result|state)$/;
+/** The only status values that count as a finished order. Matched whole, so "unpaid" is not "paid". */
+const SUCCESS_VALUE = /^(success|succeeded|successful|paid|completed|complete|confirmed|accepted)$/i;
+/** Keys whose presence (non-empty) means the customer still has something to do. */
+const PENDING_KEY =
+  /redirect|action|deeplink|deep_link|app_link|applink|(^|_)url$|(^|_)uri$|(^|_)link$|challenge|3ds|(^|_)qr|next_step|webview|form_html|(^|_)location$|(^|_)target$/;
+
+function isEmpty(value: unknown): boolean {
+  if (value === null || value === undefined || value === "" || value === false) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value as object).length === 0;
+  return false;
+}
+
+interface CheckoutSignals {
+  /** Status-like fields with a success value, e.g. "payment.result=success". */
+  success: string[];
+  /** Everything that says the order or payment may not be finished. */
+  pending: string[];
+}
+
+/** Objects whose status speaks for the order itself; a status on vouchers, items or incentives does not. */
+const ORDER_SCOPE_KEYS = new Set(["order", "payment", "data"]);
+
+/** Any URL: https, an app deep link (line://, intent:, another custom scheme), or a bare LINE Pay address. */
+const LINK_VALUE = /^(?:[a-z][a-z0-9+.-]*:\/\/|intent:)|pay\.line\.me/i;
+
+/**
+ * Walk the whole body, every depth and array, collecting pending signs everywhere,
+ * and success statuses only at the top level or inside order / payment / data.
+ */
+function checkoutSignals(
+  body: unknown,
+  path = "",
+  out: CheckoutSignals = { success: [], pending: [] },
+  orderScope = true
+): CheckoutSignals {
+  if (Array.isArray(body)) {
+    body.forEach((v, i) => checkoutSignals(v, `${path}[${i}]`, out, false));
+    return out;
+  }
+  if (!body || typeof body !== "object") {
+    if (typeof body === "string" && LINK_VALUE.test(body.trim())) out.pending.push(`${path} is a link`);
+    return out;
+  }
+  for (const [rawKey, value] of Object.entries(body as Record<string, unknown>)) {
+    const key = normaliseKey(rawKey);
+    const here = path ? `${path}.${rawKey}` : rawKey;
+    if (STATUS_KEY.test(key)) {
+      if (typeof value === "string" && SUCCESS_VALUE.test(value.trim())) {
+        // A success elsewhere (a voucher, an item) says nothing about the order; it is neither.
+        if (orderScope) out.success.push(`${here}=${value}`);
+      } else if (value !== null && value !== undefined) {
+        out.pending.push(`${here}=${JSON.stringify(value)}`);
+      }
+    }
+    if (PENDING_KEY.test(key) && !isEmpty(value)) out.pending.push(here);
+    if ((key.startsWith("requires_") || key === "is_pending" || key === "pending") && value === true) {
+      out.pending.push(`${here}=true`);
+    }
+    if (/^(awaiting|needs|pending)_/.test(key) && !isEmpty(value) && value !== 0) out.pending.push(here);
+    if ((key === "amount_due" || key === "outstanding" || key.endsWith("_outstanding")) && !isEmpty(value) && value !== 0 && value !== "0") {
+      out.pending.push(`${here}=${JSON.stringify(value)}`);
+    }
+    if ((key === "paid" || key === "is_paid") && value === false) out.pending.push(`${here}=false`);
+    checkoutSignals(value, here, out, orderScope && ORDER_SCOPE_KEYS.has(key));
+  }
+  return out;
+}
+
+/**
+ * Read a checkout response, accepting only a clearly finished order.
+ *
+ * UNVERIFIED FOR TW: no tw checkout response has ever been captured, so this
+ * cannot match a known success shape. It accepts an answer only when it has an
+ * order code, at least one status / result / state field (top level or inside
+ * order / payment / data, any key style) saying success / paid / completed / confirmed / accepted, and no
+ * sign of an unfinished step anywhere: no other status value (pending, CREATED,
+ * NEW, INIT, a status object, ...), no link (http(s) or an app deep link such as
+ * line:// or intent://), redirect, action, deeplink, webview
+ * or form, no requires_* / is_pending flag, no paid: false. Everything else is
+ * "status unknown", which empties the cart and locks ordering until the user
+ * has checked the app. The first real order may well land there; record its
+ * response and narrow this to the real tw success shape.
+ */
+export function parseCheckoutResponse(resp: any): CheckoutOutcome {
+  if (!resp || typeof resp !== "object" || Array.isArray(resp)) {
+    throw new CheckoutStatusUnknownError("checkout returned no readable answer.");
+  }
+  const errors: any[] = Array.isArray(resp.errors) ? resp.errors : [];
+  if (errors.length > 0) {
+    const messages = errors.map((e) => e?.message || e?.code || "unknown error").join("; ");
+    throw new CheckoutStatusUnknownError(`foodpanda answered with an error (${messages}).`);
+  }
+  if (resp.error) throw new CheckoutStatusUnknownError(`foodpanda answered with an error (${resp.error}).`);
+
+  const orderCode =
+    resp.id ?? resp.order?.code ?? resp.order?.order_code ?? resp.code ?? resp.order_code ??
+    resp.data?.order_code ?? resp.data?.code ?? null;
+  const codeNote = typeof orderCode === "string" && orderCode ? ` foodpanda returned order code ${orderCode}.` : "";
+
+  const signals = checkoutSignals(resp);
+  if (signals.pending.length > 0) {
+    throw new CheckoutStatusUnknownError(
+      `foodpanda's answer shows an unfinished step or status (${signals.pending.slice(0, 5).join(", ")}), so the ` +
+        `payment may not be complete. The order may be waiting for payment.${codeNote}`
+    );
+  }
+  if (typeof orderCode !== "string" || !orderCode) {
+    throw new CheckoutStatusUnknownError("checkout did not return an order code.");
+  }
+  if (signals.success.length === 0) {
+    throw new CheckoutStatusUnknownError(
+      `foodpanda's answer does not say the order succeeded (this server has never seen a confirmed foodpanda ` +
+        `Taiwan checkout answer, so it only accepts an explicit success status).${codeNote}`
+    );
+  }
+
+  const minutes = Number(resp.expedition?.expected_delivery_duration ?? 0);
+  const totalValue = resp.total ?? resp.payment?.total ?? resp.payment?.payable_total ?? resp.order?.total ?? resp.data?.total;
+  const methodList: any[] | null = Array.isArray(resp.payment?.methods) ? resp.payment.methods : null;
+  const singleMethod = resp.payment?.method ?? resp.order?.payment_method ?? resp.data?.payment_method;
+  return {
+    orderCode,
+    status: signals.success[0].split("=").slice(1).join("="),
+    estimatedDelivery: resp.order?.estimated_delivery_time ?? (minutes > 0 ? `${minutes} min` : ""),
+    reportedTotal:
+      typeof totalValue === "number"
+        ? totalValue
+        : typeof totalValue === "string" && totalValue.trim() !== "" && !Number.isNaN(Number(totalValue))
+          ? Number(totalValue)
+          : null,
+    reportedMethods: methodList
+      ? methodList.map((m) => String(m?.method ?? m?.name ?? "?"))
+      : typeof singleMethod === "string"
+        ? [singleMethod]
+        : null,
+  };
+}
+
+/** Differences between what foodpanda says it ordered and what the user confirmed. */
+export function checkoutMismatches(
+  outcome: CheckoutOutcome,
+  expected: { total: number; method: string }
+): string[] {
+  const out: string[] = [];
+  if (outcome.reportedTotal !== null && outcome.reportedTotal !== expected.total) {
+    out.push(`total ${outcome.reportedTotal} instead of the confirmed ${expected.total}`);
+  }
+  if (outcome.reportedMethods !== null && (outcome.reportedMethods.length !== 1 || outcome.reportedMethods[0] !== expected.method)) {
+    out.push(`payment method ${outcome.reportedMethods.join(", ") || "none"} instead of the confirmed ${expected.method}`);
+  }
+  return out;
 }

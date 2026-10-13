@@ -1,0 +1,327 @@
+{
+ "request": {
+  "subtotal": 278,
+  "currency": "TWD",
+  "vendorCode": "test01",
+  "amount": 366,
+  "emoneyAmountToUse": 0,
+  "expeditionType": "delivery",
+  "paymentLimits": [
+   {
+    "limitCode": "foodafterdiscount",
+    "limitAmount": 278
+   },
+   {
+    "limitCode": "orderamountwithoutpaymentfee",
+    "limitAmount": 366
+   }
+  ]
+ },
+ "response": {
+  "apiVersion": "1.0",
+  "data": {
+   "purchaseIntent": {
+    "id": "intent-0001",
+    "walletId": "wallet-id-redacted",
+    "paymentSessionId": "",
+    "shopConfigurationId": "shop-config-0001",
+    "status": "Available",
+    "amount": {
+     "currency": "TWD",
+     "amount": 366
+    },
+    "creationDateTime": "2026-01-01T00:00:00Z",
+    "description": "",
+    "customType": "",
+    "externalReference": "twcust01"
+   },
+   "paymentAmount": {
+    "currency": "TWD",
+    "amount": 366
+   },
+   "emoneyAmount": {
+    "currency": "TWD",
+    "amount": 0
+   },
+   "paymentMethodDetails": {
+    "paymentSessionId": "",
+    "paymentMethods": [
+     {
+      "name": "payment_on_delivery",
+      "selected": false,
+      "paymentInstruments": [
+       {
+        "publicId": "cash-instrument-id",
+        "selected": false,
+        "preferred": false,
+        "publicFields": {
+         "displayValue": "cash",
+         "owner": "(unknown)"
+        },
+        "usageFlags": null,
+        "status": "HEALTHY"
+       }
+      ],
+      "requiredFields": null,
+      "cardSchemes": null,
+      "fieldValueRestrictions": null,
+      "status": "HEALTHY",
+      "preferred": false,
+      "hidden": false,
+      "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_method/ic-payments-payment_on_delivery-xs.png",
+      "tokenizationEnabled": false,
+      "tokenizationChecked": false,
+      "disableNewTokenization": false,
+      "showTokenizationCheckbox": false,
+      "tokenization": {
+       "enabled": false,
+       "checked": false,
+       "disableNewTokenization": false,
+       "showCheckbox": false
+      },
+      "mixableWith": [
+       "balance"
+      ],
+      "metadata": {
+       "position": "2"
+      },
+      "new": false,
+      "isOnlinePaymentMethod": false,
+      "useChannelCodeAsMethodName": false
+     },
+     {
+      "name": "no_payment",
+      "selected": false,
+      "paymentInstruments": null,
+      "requiredFields": null,
+      "cardSchemes": null,
+      "fieldValueRestrictions": null,
+      "preferred": false,
+      "hidden": true,
+      "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_method/ic-payments-no_payment-xs.png",
+      "tokenizationEnabled": false,
+      "tokenizationChecked": false,
+      "disableNewTokenization": false,
+      "showTokenizationCheckbox": false,
+      "tokenization": {
+       "enabled": false,
+       "checked": false,
+       "disableNewTokenization": false,
+       "showCheckbox": false
+      },
+      "metadata": {
+       "position": "3"
+      },
+      "new": false,
+      "isOnlinePaymentMethod": true,
+      "useChannelCodeAsMethodName": false
+     },
+     {
+      "name": "invoice",
+      "selected": false,
+      "paymentInstruments": null,
+      "requiredFields": null,
+      "cardSchemes": null,
+      "fieldValueRestrictions": null,
+      "preferred": false,
+      "hidden": true,
+      "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_method/ic-payments-invoice-xs.png",
+      "tokenizationEnabled": false,
+      "tokenizationChecked": false,
+      "disableNewTokenization": false,
+      "showTokenizationCheckbox": false,
+      "tokenization": {
+       "enabled": false,
+       "checked": false,
+       "disableNewTokenization": false,
+       "showCheckbox": false
+      },
+      "metadata": {
+       "position": "4"
+      },
+      "new": false,
+      "isOnlinePaymentMethod": true,
+      "useChannelCodeAsMethodName": false
+     },
+     {
+      "name": "balance",
+      "selected": false,
+      "paymentInstruments": null,
+      "requiredFields": null,
+      "cardSchemes": null,
+      "fieldValueRestrictions": null,
+      "status": "HEALTHY",
+      "preferred": false,
+      "hidden": true,
+      "imageUrl": "https://images.deliveryhero.io/image/foodpanda/pandapay/tw/ic-payments-balance-xs.png",
+      "tokenizationEnabled": false,
+      "tokenizationChecked": false,
+      "disableNewTokenization": false,
+      "showTokenizationCheckbox": false,
+      "tokenization": {
+       "enabled": false,
+       "checked": false,
+       "disableNewTokenization": false,
+       "showCheckbox": false
+      },
+      "mixableWith": [
+       "payment_on_delivery",
+       "cybersource_creditcard",
+       "line_pay"
+      ],
+      "metadata": {
+       "position": "5"
+      },
+      "new": false,
+      "isOnlinePaymentMethod": true,
+      "useChannelCodeAsMethodName": false
+     },
+     {
+      "name": "cybersource_creditcard",
+      "selected": false,
+      "paymentInstruments": [],
+      "requiredFields": [
+       "owner",
+       "scheme",
+       "validToMonth",
+       "validToYear"
+      ],
+      "cardSchemes": [
+       "AmericanExpress",
+       "JCB",
+       "Maestro",
+       "Mastercard",
+       "Visa"
+      ],
+      "fieldValueRestrictions": null,
+      "status": "HEALTHY",
+      "preferred": false,
+      "hidden": false,
+      "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_method/ic-payments-cybersource_creditcard-xs.png",
+      "tokenizationEnabled": true,
+      "tokenizationChecked": false,
+      "disableNewTokenization": false,
+      "showTokenizationCheckbox": true,
+      "tokenization": {
+       "enabled": true,
+       "checked": false,
+       "disableNewTokenization": false,
+       "showCheckbox": true
+      },
+      "mixableWith": [
+       "balance"
+      ],
+      "cardSchemesAssets": [
+       {
+        "name": "AmericanExpress",
+        "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_schema/ic-payments-AmericanExpress-xs.png"
+       },
+       {
+        "name": "JCB",
+        "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_schema/ic-payments-JCB-xs.png"
+       },
+       {
+        "name": "Maestro",
+        "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_schema/ic-payments-Maestro-xs.png"
+       },
+       {
+        "name": "Mastercard",
+        "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_schema/ic-payments-Mastercard-xs.png"
+       },
+       {
+        "name": "Visa",
+        "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_schema/ic-payments-Visa-xs.png"
+       }
+      ],
+      "metadata": {
+       "bruceUrl": "https://bruce-fp-tw.production.asia.fintech.deliveryhero.com/credit-card/add?bruceOwnerType=Purchase&bruceOwnerData=%7B%22provider%22%3A%22cybersource%22%2C%22countryCode%22%3A%22TW%22%2C%22paymentContext%22%3A%22restaurants%22%2C%22vendorId%22%3A%22test01%22%2C%22intentId%22%3A%22intent-0001%22%7D",
+       "orderNumber": "2",
+       "position": "6"
+      },
+      "hostedPageURL": "https://bruce-fp-tw.production.asia.fintech.deliveryhero.com/credit-card/add?bruceOwnerData=%7B%22provider%22%3A%22cybersource%22%2C%22countryCode%22%3A%22TW%22%2C%22paymentContext%22%3A%22restaurants%22%2C%22vendorId%22%3A%22test01%22%2C%22intentId%22%3A%22intent-0001%22%7D&bruceOwnerType=Purchase&provider=cybersource&tokenization_showcheckbox=true",
+      "new": false,
+      "isOnlinePaymentMethod": true,
+      "useChannelCodeAsMethodName": false,
+      "category": "not_visible"
+     },
+     {
+      "name": "line_pay",
+      "selected": false,
+      "paymentInstruments": [
+       {
+        "publicId": "linepay-bound-instrument-id",
+        "selected": false,
+        "preferred": true,
+        "publicFields": {
+         "displayValue": "************0000"
+        },
+        "usageFlags": null,
+        "status": "HEALTHY"
+       }
+      ],
+      "requiredFields": null,
+      "cardSchemes": null,
+      "fieldValueRestrictions": null,
+      "status": "HEALTHY",
+      "preferred": true,
+      "hidden": false,
+      "imageUrl": "https://images.deliveryhero.io/image/foodpanda/payment_icons/payment_method/ic-payments-line_pay-xs.png",
+      "tokenizationEnabled": true,
+      "tokenizationChecked": true,
+      "disableNewTokenization": false,
+      "showTokenizationCheckbox": true,
+      "tokenization": {
+       "enabled": true,
+       "checked": true,
+       "disableNewTokenization": false,
+       "showCheckbox": true
+      },
+      "mixableWith": [
+       "balance"
+      ],
+      "metadata": {
+       "position": "29"
+      },
+      "new": false,
+      "isOnlinePaymentMethod": true,
+      "useChannelCodeAsMethodName": false
+     }
+    ],
+    "limitDefinitions": null,
+    "action": ""
+   },
+   "emoneyDetailsInfo": {
+    "walletId": "wallet-id-redacted",
+    "transactionAmount": {
+     "currency": "TWD",
+     "amount": 366
+    },
+    "consumerTransactionAmount": {
+     "currency": "TWD",
+     "amount": 366
+    },
+    "emoneyAmount": {
+     "currency": "TWD",
+     "amount": 0
+    },
+    "paymentAmount": {
+     "currency": "TWD",
+     "amount": 366
+    },
+    "walletStatus": {
+     "enabled": true,
+     "kyc": {
+      "enabled": false
+     }
+    },
+    "transactionAccountDetailsList": null
+   },
+   "aggregatedBalances": {
+    "primary": {
+     "currency": "TWD",
+     "amount": 0
+    }
+   }
+  }
+ }
+}

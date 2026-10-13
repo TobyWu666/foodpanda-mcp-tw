@@ -1,0 +1,106 @@
+{
+ "linepay": {
+  "request": {
+   "payment": {
+    "loyalty": {
+     "balance": null,
+     "points": 0,
+     "selected_promotion_id": ""
+    },
+    "methods": [
+     {
+      "method": "line_pay",
+      "amount": 366,
+      "publicId": "linepay-bound-instrument-id",
+      "displayable_name": "NEXTGEN_PAYMENT_SELECTION_LINE_PAY"
+     }
+    ],
+    "allowance_amount": 0
+   }
+  },
+  "response": {
+   "payment": {
+    "methods": [
+     {
+      "displayable_name": "NEXTGEN_PAYMENT_SELECTION_LINE_PAY",
+      "method": "line_pay",
+      "amount": 366
+     }
+    ],
+    "loyalty": {
+     "balance": null,
+     "earning_type": "",
+     "selected_promotion_id": "",
+     "partner_name": "",
+     "buckets": null,
+     "promotions": null,
+     "discount": 0,
+     "earned": 0,
+     "points": 0
+    },
+    "service_fee": 19,
+    "subtotal": 278,
+    "discounted_subtotal": 278,
+    "vat_total": 16.52,
+    "discount": 0,
+    "payable_total": 366,
+    "payable_total_without_voucher": 366,
+    "crossed_out_total": 366,
+    "total_savings": 0,
+    "total": 366
+   }
+  }
+ },
+ "cash": {
+  "request": {
+   "payment": {
+    "loyalty": {
+     "balance": null,
+     "points": 0,
+     "selected_promotion_id": ""
+    },
+    "methods": [
+     {
+      "method": "payment_on_delivery",
+      "amount": 366,
+      "publicId": "cash-instrument-id",
+      "displayable_name": "NEXTGEN_PAYMENT_SELECTION_PAYMENT_ON_DELIVERY"
+     }
+    ],
+    "allowance_amount": 0
+   }
+  },
+  "response": {
+   "payment": {
+    "methods": [
+     {
+      "displayable_name": "NEXTGEN_PAYMENT_SELECTION_PAYMENT_ON_DELIVERY",
+      "method": "payment_on_delivery",
+      "amount": 366
+     }
+    ],
+    "loyalty": {
+     "balance": null,
+     "earning_type": "",
+     "selected_promotion_id": "",
+     "partner_name": "",
+     "buckets": null,
+     "promotions": null,
+     "discount": 0,
+     "earned": 0,
+     "points": 0
+    },
+    "service_fee": 19,
+    "subtotal": 278,
+    "discounted_subtotal": 278,
+    "vat_total": 16.52,
+    "discount": 0,
+    "payable_total": 366,
+    "payable_total_without_voucher": 366,
+    "crossed_out_total": 366,
+    "total_savings": 0,
+    "total": 366
+   }
+  }
+ }
+}

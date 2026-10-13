@@ -1,0 +1,19 @@
+{
+ "status_code": 200,
+ "data": {
+  "id": "1000001",
+  "code": "twcust01",
+  "first_name": "[REDACTED:name]",
+  "last_name": "[REDACTED:name]",
+  "email": "[REDACTED:email]",
+  "email_verified": true,
+  "mobile_number": "[REDACTED:phone]",
+  "mobile_country_code": "+886",
+  "sms_verification_needed": false,
+  "source": "b2c",
+  "mobile_verified_attempts": 3,
+  "language_id": 6,
+  "created_at": "2020-01-01T00:00:00Z",
+  "braze_id": "TW_1000001"
+ }
+}
