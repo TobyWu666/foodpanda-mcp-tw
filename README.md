@@ -292,6 +292,7 @@ foodpanda-mcp: region=foodpanda Taiwan api=https://tw.fd-api.com web=https://www
   直到它帶著 `previous_order_checked_in_app: true` 被呼叫。AI **只有在你確認過 foodpanda app、而且仍然要再下一單**時才可以設這個值，
   不能自己設。這個鎖存在 `$FOODPANDA_STATE_DIR/order-check-required.json`（權限 0600，只記錄時間和固定的原因，沒有訂單內容或個資），
   所以 server 或 client 重新啟動後鎖**仍然有效**。帶 `previous_order_checked_in_app: true` 呼叫 `prepare_order` 會刪除這個檔案、解除鎖定。
+  （如果這個檔案寫不進去，鎖仍會在記憶體中生效，但 server 重啟後就會解除；stderr 會留下一行提示。）
 - **成功的判定很嚴格：** 目前還沒有錄到台灣站真正成功的結帳回應，所以只有回應裡同時有訂單編號、明確的成功狀態、
   而且沒有任何待處理步驟（跳轉、連結、pending 狀態等）時才算成功，其他一律回報「狀態不明」。
   因此**第一筆真實訂單即使成功了，也很可能顯示「狀態不明」**。這是刻意偏向安全的設計，請到 app 確認即可；
