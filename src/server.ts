@@ -465,7 +465,7 @@ export function createServer(client: FoodpandaClient): McpServer {
     async ({ timeout }) => {
       try {
         const timeoutSeconds = timeout ?? 120;
-        const token = await refreshTokenViaBrowser(timeoutSeconds);
+        const token = await refreshTokenViaBrowser(timeoutSeconds, (t) => client.isAccountToken(t));
 
         // Update the in-memory client
         client.updateSessionToken(token);

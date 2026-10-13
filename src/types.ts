@@ -106,6 +106,9 @@ export interface Cart {
   subtotal: number;
   delivery_fee: number;
   service_fee: number;
+  /** Part of the total not itemised above (e.g. a small-order fee); absent when the parts add up. */
+  other_charges?: number;
+  other_charges_note?: string;
   total: number;
 }
 

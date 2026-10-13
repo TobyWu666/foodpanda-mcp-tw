@@ -53,9 +53,15 @@ export function browserProfileDir(): string {
  * Reusing the shared context matters: that context is also the one the API
  * transport uses, so it already holds the PerimeterX clearance cookie plus the
  * login cookies after the user authenticates.
+ *
+ * The storefront may send a Bearer token before anyone logs in. With `isAccountToken`,
+ * each new token is checked and only an account token is returned; the others are
+ * skipped and the wait goes on until the user has logged in.
  */
 export async function refreshTokenViaBrowser(
-  timeoutSeconds: number = 300
+  timeoutSeconds: number = 300,
+  isAccountToken?: (token: string) => Promise<boolean>,
+  getContext: () => Promise<any> = () => browserTransport().getContext()
 ): Promise<string> {
   const cfg = getRegionConfig();
   const apiHost = new URL(cfg.apiBase).host;
@@ -68,16 +74,23 @@ export async function refreshTokenViaBrowser(
     );
   }
 
-  const context = await browserTransport().getContext();
+  const context = await getContext();
   const page = context.pages()[0] || (await context.newPage());
 
   try {
     return await new Promise<string>((resolve, reject) => {
+      let done = false;
+      const seen = new Set<string>();
+      let checks: Promise<void> = Promise.resolve();
+      const finish = (fn: () => void) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        fn();
+      };
       const timer = setTimeout(() => {
-        reject(
-          new Error(
-            `Login timed out after ${timeoutSeconds} seconds. Please try again.`
-          )
+        finish(() =>
+          reject(new Error(`Login timed out after ${timeoutSeconds} seconds. Please try again.`))
         );
       }, timeoutSeconds * 1000);
 
@@ -94,13 +107,23 @@ export async function refreshTokenViaBrowser(
         // Validate JWT structure (header.payload.signature)
         if (token.split(".").length !== 3) return;
 
-        clearTimeout(timer);
-        resolve(token);
+        if (done || seen.has(token)) return;
+        seen.add(token);
+        if (!isAccountToken) return finish(() => resolve(token));
+        // One check at a time, in the order the tokens were seen.
+        checks = checks.then(async () => {
+          if (done) return;
+          try {
+            if (await isAccountToken(token)) finish(() => resolve(token));
+            else console.error("foodpanda-mcp: skipping a token that is not a logged-in account; waiting for login");
+          } catch (err) {
+            finish(() => reject(new Error(`Could not check the login token: ${(err as Error).message}`)));
+          }
+        });
       });
 
       page.goto(cfg.webHost).catch((err: Error) => {
-        clearTimeout(timer);
-        reject(new Error(`Failed to navigate to ${cfg.webHost}: ${err.message}`));
+        finish(() => reject(new Error(`Failed to navigate to ${cfg.webHost}: ${err.message}`)));
       });
     });
   } finally {

@@ -33,6 +33,7 @@ import {
   cartItemsOf,
   chainOutletsOperation,
   parseCalculate,
+  otherChargesOf,
   parseChainOutlets,
   parseProductChoices,
   parseRestaurantPage,
@@ -81,9 +82,23 @@ const MENU_CACHE_MS = 10 * 60 * 1000;
 export const ORDER_CHECK_LOCK_FILE = "order-check-required.json";
 
 /** Raw HTTP, injectable so tests can run the whole flow without the network. */
+export interface HttpInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  /**
+   * Browser transport only: "context" sends the request from the browser context's request
+   * API instead of from inside the storefront page. Needed where the page cannot read the
+   * response (GET /api/v5/customers fails in-page with "Failed to fetch" on TW).
+   */
+  via?: "context";
+  /** Skip the warm-up navigation (used while the user is logging in on that page). */
+  noWarmUp?: boolean;
+}
+
 export type HttpFunction = (
   url: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string }
+  init: HttpInit
 ) => Promise<{ status: number; ok: boolean; text: string }>;
 
 export interface FoodpandaClientOptions {
@@ -115,6 +130,8 @@ export interface PreparedOrderSummary {
   subtotal: number;
   delivery_fee: number;
   service_fee: number;
+  other_charges?: number;
+  other_charges_note?: string;
   total: number;
   currency: string;
   payment_method: { payment_method: PaymentMethodChoice; label: string };
@@ -160,6 +177,8 @@ export class FoodpandaClient {
   private cartDeliveryFee: number = 0;
   private cartServiceFee: number = 0;
   private cartTotal: number = 0;
+  /** Part of the total not itemised above (e.g. a small-order fee), for tool output. */
+  private cartOther: ReturnType<typeof otherChargesOf> = {};
   private nextCartItemId: number = 1;
 
   // Menu cache keyed by vendor code
@@ -278,7 +297,7 @@ export class FoodpandaClient {
 
   private async httpRequest(
     url: string,
-    init: { method?: string; headers?: Record<string, string>; body?: string } = {}
+    init: HttpInit = {}
   ): Promise<{ status: number; ok: boolean; text: string }> {
     if (this.http) return this.http(url, init);
     if (process.env.NODE_TEST_CONTEXT) {
@@ -297,7 +316,8 @@ export class FoodpandaClient {
       return { status: res.status, ok: res.ok, text };
     }
     const transport = browserTransport();
-    await transport.warmUp();
+    if (!init.noWarmUp) await transport.warmUp();
+    if (init.via === "context") return transport.fetch(url, init);
     // GETs (the REST endpoints: vendor details, menus, addresses) must come from the page —
     // that is the only origin PerimeterX accepts them from. POSTs (GraphQL search) work from
     // the context's request API. Override with FOODPANDA_FETCH_MODE=page|context.
@@ -357,9 +377,10 @@ export class FoodpandaClient {
 
   private async restRequest<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    transport: Pick<HttpInit, "via" | "noWarmUp"> = {}
   ): Promise<T> {
-    return this.withPerimeterXRetry(() => this.restRequestOnce<T>(path, options));
+    return this.withPerimeterXRetry(() => this.restRequestOnce<T>(path, options, transport));
   }
 
   private async graphqlRequest<T>(op: GraphqlOperation): Promise<T> {
@@ -368,12 +389,14 @@ export class FoodpandaClient {
 
   private async restRequestOnce<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    transport: Pick<HttpInit, "via" | "noWarmUp"> = {}
   ): Promise<T> {
     const cfg = getRegionConfig();
     const url = `${cfg.apiBase}${path}`;
     const method = typeof options.method === "string" ? options.method : "GET";
     const result = await this.httpRequest(url, {
+      ...transport,
       method,
       body: typeof options.body === "string" ? options.body : undefined,
       headers: {
@@ -688,6 +711,7 @@ export class FoodpandaClient {
       subtotal: this.cartSubtotal,
       delivery_fee: this.cartDeliveryFee,
       service_fee: this.cartServiceFee,
+      ...this.cartOther,
       total: this.cartTotal,
     };
   }
@@ -737,9 +761,35 @@ export class FoodpandaClient {
 
   private async getCustomerProfile(): Promise<CustomerProfile> {
     if (this.cachedCustomerProfile) return this.cachedCustomerProfile;
-    const result = await this.restRequest<{ data: CustomerProfile }>("/api/v5/customers");
+    // In-page this GET fails with "Failed to fetch" on TW (live run 2026-10-13), while the
+    // same request from the browser context answers 200; /customers/addresses works in-page.
+    const result = await this.restRequest<{ data: CustomerProfile }>("/api/v5/customers", {}, { via: "context" });
+    if (!result?.data?.id) throw new Error("foodpanda returned no customer account for this login.");
     this.cachedCustomerProfile = result.data;
     return result.data;
+  }
+
+  /**
+   * Whether `token` belongs to a logged-in account: GET /api/v5/customers with it answers
+   * 200 with a customer id (the shape seen in the tw capture). A 401/403 or a reply without
+   * an id means it is not an account token. Sent from the browser context without the
+   * warm-up, so the page the user is logging in on is never navigated.
+   */
+  async isAccountToken(token: string): Promise<boolean> {
+    try {
+      const result = await this.restRequestOnce<{ data?: { id?: unknown } }>(
+        "/api/v5/customers",
+        { headers: { Authorization: `Bearer ${token}` } },
+        { via: "context", noWarmUp: true }
+      );
+      const id = result?.data?.id;
+      return id !== undefined && id !== null && String(id) !== "";
+    } catch (err) {
+      // A refused token (401/403, or another 4xx) is not an account token. PerimeterX and
+      // network errors are real problems and go to the caller.
+      if (/Session token expired or invalid|Foodpanda API error \(4\d\d\)/.test((err as Error).message)) return false;
+      throw err;
+    }
   }
 
   private async getDeliveryAddresses(): Promise<DeliveryAddress[]> {
@@ -922,6 +972,7 @@ export class FoodpandaClient {
       subtotal: this.cartSubtotal,
       delivery_fee: this.cartDeliveryFee,
       service_fee: this.cartServiceFee,
+      ...this.cartOther,
       total: this.cartTotal,
       currency: getRegionConfig().currency,
       payment_method: { payment_method: choice, label: option.label },
@@ -1103,6 +1154,7 @@ export class FoodpandaClient {
     this.cartServiceFee = calc.serviceFee;
     this.cartTotal = calc.total;
     this.cartDeliveryFee = calc.deliveryFee;
+    this.cartOther = otherChargesOf(calc);
     this.cartItems = cartItemsOf(this.cartProducts, this.cartItemIds, calc);
 
     return {
@@ -1112,6 +1164,7 @@ export class FoodpandaClient {
       subtotal: this.cartSubtotal,
       delivery_fee: this.cartDeliveryFee,
       service_fee: this.cartServiceFee,
+      ...this.cartOther,
       total: this.cartTotal,
     };
   }
@@ -1128,6 +1181,7 @@ export class FoodpandaClient {
     this.cartDeliveryFee = 0;
     this.cartServiceFee = 0;
     this.cartTotal = 0;
+    this.cartOther = {};
     this.nextCartItemId = 1;
   }
 }

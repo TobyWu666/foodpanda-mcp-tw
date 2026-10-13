@@ -10,6 +10,7 @@ import {
   checkQuantity,
   chainOutletsOperation,
   parseCalculate,
+  otherChargesOf,
   parseChainOutlets,
   parseProductChoices,
   parseRestaurantPage,
@@ -237,6 +238,31 @@ test("calculate response gives the totals and per-line prices", () => {
   assert.equal(calc.total, 366);
   assert.deepEqual(calc.lines.map((l) => l.unitPrice), [3, 275]);
   assert.ok(calc.lines.every((l) => l.isAvailable));
+  // Captured above the minimum order: the parts add up, nothing extra to show.
+  assert.equal(calc.otherCharges, 0);
+  assert.deepEqual(calc.smallOrder, { minimum: 79, cap: 19 });
+  assert.deepEqual(otherChargesOf(calc), {});
+});
+
+test("a total the parts do not explain is shown, with the small-order minimum when below it", () => {
+  // The live run's numbers (subtotal 60, delivery 15, service 5, total 99) on the captured shape.
+  const resp = structuredClone(cart.response);
+  resp.payment.subtotal = 60;
+  resp.payment.service_fee = 5;
+  resp.payment.total = 99;
+  resp.expedition.selected_delivery_option.delivery_fee = 15;
+  const calc = parseCalculate(resp, cart.request.products);
+  assert.equal(calc.otherCharges, 19);
+  const shown = otherChargesOf(calc);
+  assert.equal(shown.other_charges, 19);
+  assert.match(shown.other_charges_note ?? "", /minimum order of 79 \(small-order fee cap 19\)/);
+
+  // Above the minimum, an unexplained amount is still shown, without guessing its name.
+  resp.payment.subtotal = 100;
+  resp.payment.total = 139;
+  const above = otherChargesOf(parseCalculate(resp, cart.request.products));
+  assert.equal(above.other_charges, 19);
+  assert.doesNotMatch(above.other_charges_note ?? "", /small-order/);
 });
 
 test("a line missing from the response is reported unavailable", () => {
