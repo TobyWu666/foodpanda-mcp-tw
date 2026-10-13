@@ -99,17 +99,21 @@ console.log(
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [join(repo, "build", "index.js")],
-  env: { ...process.env, FOODPANDA_HEADLESS: flag("login") ? "0" : process.env.FOODPANDA_HEADLESS ?? "1" },
+  // Headed by default (PerimeterX blocks headless at search); --login always needs a window.
+  env: { ...process.env, ...(flag("login") ? { FOODPANDA_HEADLESS: "0" } : {}) },
   stderr: "inherit",
 });
 const client = new Client({ name: "live-check", version: "1" });
 await client.connect(transport);
 
 const results = [];
+// The SDK's default request timeout is 60s; refresh_token waits up to 300s for the login,
+// and a first browser start plus a PerimeterX warm-up can also pass a minute.
+const TIMEOUT_MS = { refresh_token: 330_000 };
 async function call(name, input = {}) {
   if (name === "place_order") throw new Error("live-check never calls place_order");
   const started = Date.now();
-  const res = await client.callTool({ name, arguments: input });
+  const res = await client.callTool({ name, arguments: input }, undefined, { timeout: TIMEOUT_MS[name] ?? 180_000 });
   const text = res.content?.[0]?.text ?? "";
   const ok = !res.isError;
   results.push({ step: name, ok, seconds: ((Date.now() - started) / 1000).toFixed(1) });

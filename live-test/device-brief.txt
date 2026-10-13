@@ -6,7 +6,8 @@ Setup notes for the live run on toby's Mac (from the main foodpanda-mcp-tw threa
   Run it with the repo folder as the current directory: it loads build/index.js and @modelcontextprotocol/sdk from process.cwd().
 - Required env: FOODPANDA_LATITUDE and FOODPANDA_LONGITUDE = toby's delivery coordinates.
   Put them on the command line only. Never write them to a file and never post them.
-- --login sets FOODPANDA_HEADLESS=0 for the server, so a visible Chromium window opens for toby to log in.
+- The browser is visible (headed) by default: PerimeterX blocks headless at search. --login always forces it.
+  The script allows refresh_token 330s (the SDK default of 60s cut the login short in the first run).
   Everything else can stay at its default: FOODPANDA_COUNTRY=tw, FOODPANDA_BROWSER_TRANSPORT=1 (needed for PerimeterX), FOODPANDA_MIN_INTERVAL_MS=2000.
 - The token and the browser profile go to ~/.foodpanda-mcp/ (outside git).
 - Safety: the script refuses to call place_order, never uses the confirmation code, and empties the cart at the end.
