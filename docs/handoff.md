@@ -61,7 +61,7 @@ PR #12 做了 HTTP 版本，下單前在 Mac 跳確認視窗或用 Telegram 確�
   所以每一筆都要有真人按確認。
 - 結帳絕不重試。錯誤訊息最後一行是 `[checkout_sent: no]`（沒送出）或 `[checkout_sent: unknown]`（可能已下單），
   看到 `unknown` 一定要先到 foodpanda app 查。判斷「沒送出」只能看 `[checkout_sent: no]` 標記，不能比對錯誤文字；
-  沒有標記就當成可能已下單。
+  沒有標記就當成可能已下單。（toby 2026-10-13 告知 mcp-check 已改用這條規則，尚未對照它的程式碼確認。）
 - 登入過期時，只會改用**同一個帳號**的新登入。`place_order` 進行中換了登入，就不送出結帳。
 - token、cookie、地址、座標、抓包檔都不能進 git。`test/fixtures/` 只放遮蔽過的資料。
 

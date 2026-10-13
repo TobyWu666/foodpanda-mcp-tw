@@ -1078,6 +1078,9 @@ export class FoodpandaClient {
     // The login the order is checked under. A newer saved login may be swapped in by any
     // request below; the checkout must then not go out under it (see the check before sending).
     const login = this.sessionToken;
+    // Set just before the checkout request starts. After that, every failure is
+    // "status unknown" and locks ordering, whatever was thrown and wherever.
+    let checkoutMayHaveLeft = false;
     try {
       if (!prepared || !this.cartVendor || this.cartProducts.length === 0) {
         // Let the guard word it: missing, used, expired or unknown.
@@ -1139,6 +1142,7 @@ export class FoodpandaClient {
       }
 
       let resp: unknown;
+      checkoutMayHaveLeft = true;
       try {
         // restRequestOnce, never restRequest: a checkout must not be retried.
         resp = await this.restRequestOnce<unknown>("/api/v5/cart/checkout", {
@@ -1152,7 +1156,7 @@ export class FoodpandaClient {
         });
       } catch (err) {
         throw this.unresolved(
-          new CheckoutStatusUnknownError(`sending the order failed (${redactForLog((err as Error).message)}).`)
+          new CheckoutStatusUnknownError(`sending the order failed (${describeError(err)}).`)
         );
       }
 
@@ -1164,9 +1168,14 @@ export class FoodpandaClient {
         throw this.unresolved(
           err instanceof CheckoutStatusUnknownError
             ? err
-            : new CheckoutStatusUnknownError(`reading foodpanda's answer failed (${redactForLog(String((err as Error)?.message ?? err))}).`)
+            : new CheckoutStatusUnknownError(`reading foodpanda's answer failed (${describeError(err)}).`)
         );
       }
+    } catch (err) {
+      if (checkoutMayHaveLeft && !(err instanceof CheckoutStatusUnknownError)) {
+        throw this.unresolved(new CheckoutStatusUnknownError(`an unexpected error after sending (${describeError(err)}).`));
+      }
+      throw err;
     } finally {
       // Whatever happened, this code and this preparation are finished.
       this.guard.invalidate();
@@ -1202,7 +1211,12 @@ export class FoodpandaClient {
    * simply order again and risk a duplicate.
    */
   private unresolved(err: Error): Error {
-    this.clearCart();
+    // Never throws: an error here would replace the "status unknown" error.
+    try {
+      this.clearCart();
+    } catch {
+      // The lock below still stops the next order.
+    }
     // Never let a file error hide the "status unknown" message; the lock still holds in memory.
     if (!this.orderCheckLock.trySet()) {
       console.error("foodpanda-mcp: could not save the check-the-app lock file; it holds until restart only.");
@@ -1286,5 +1300,14 @@ export class FoodpandaClient {
     this.cartTotal = 0;
     this.cartOther = {};
     this.nextCartItemId = 1;
+  }
+}
+
+/** A log-safe description of anything thrown (null, strings, objects without a prototype). Never throws. */
+function describeError(err: unknown): string {
+  try {
+    return redactForLog(String((err as Error | null | undefined)?.message ?? err));
+  } catch {
+    return "unreadable error";
   }
 }

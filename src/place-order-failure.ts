@@ -20,15 +20,23 @@ export function checkoutMayHaveBeenSent(error: unknown): boolean {
 }
 
 /**
- * The error text can quote foodpanda or the network; a quoted "[checkout_sent: ...]"
- * must not look like this server's marker to a program that only reads the marker.
+ * The error text can quote foodpanda or the network; nothing quoted may look like this
+ * server's marker, even to a loose match, so the word itself is changed.
  */
 function defuseMarkers(message: string): string {
-  return message.replace(/\[(\s*checkout_sent\s*:)/gi, "($1");
+  return message.replace(/checkout[\s_]*sent/gi, "checkout-sent");
+}
+
+function messageOf(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "unreadable error";
+  }
 }
 
 export function placeOrderFailure(error: unknown) {
-  const message = defuseMarkers(error instanceof Error ? error.message : String(error));
+  const message = defuseMarkers(messageOf(error));
   const tail = checkoutMayHaveBeenSent(error) ? CHECKOUT_MAYBE_SENT : CHECKOUT_NOT_SENT;
   return {
     content: [{ type: "text" as const, text: `place_order result: ${message}\n${tail}` }],

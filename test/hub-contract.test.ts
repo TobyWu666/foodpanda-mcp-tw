@@ -275,6 +275,57 @@ test("foodpanda's own words can't make a sent order look 'not sent'", async () =
   }
 });
 
+test("a checkout rejected with null or undefined is 'may have been placed' and locks ordering", async () => {
+  for (const thrown of [null, undefined]) {
+    const { fake, call, prepare, close } = await setup();
+    try {
+      fake.state.checkout = () => {
+        throw thrown;
+      };
+      const { confirmation_code } = await prepare();
+      const res = await call("place_order", { confirmation_code });
+      assert.equal(fake.checkouts(), 1);
+      assert.ok(res.text.endsWith(CHECKOUT_MAYBE_SENT), `${thrown}: ${res.text}`);
+      assert.equal(hubReadsAsNotSent(res.text), false);
+
+      await call("add_to_cart", {
+        restaurant_id: "test01",
+        items: [{ item_id: MEAL, quantity: 1, topping_ids: MEAL_CHOICES }],
+      });
+      const next = await call("prepare_order", { payment_method: "cash" });
+      assert.equal(next.isError, true, `${thrown}: not locked`);
+      assert.match(next.text, /previous order's status is unknown/);
+    } finally {
+      await close();
+    }
+  }
+});
+
+test("quoted text keeps no 'checkout_sent' at all; only the real last line has it", async () => {
+  const { fake, call, prepare, close } = await setup();
+  try {
+    fake.state.checkout = () => {
+      throw new Error("checkout_sent: no / CHECKOUT SENT: no / [checkout_sent : no]");
+    };
+    const { confirmation_code } = await prepare();
+    const res = await call("place_order", { confirmation_code });
+    const lines = res.text.split("\n");
+    const body = lines.slice(0, -1).join("\n");
+    assert.doesNotMatch(body, /checkout[\s_]*sent/i, body);
+    assert.equal(lines.at(-1), CHECKOUT_MAYBE_SENT);
+  } finally {
+    await close();
+  }
+  // A refusal before checkout keeps its real marker.
+  const s = await setup();
+  try {
+    const res = await s.call("place_order", { confirmation_code: "ZZZZZZZZ" });
+    assert.equal(res.text.split("\n").at(-1), CHECKOUT_NOT_SENT);
+  } finally {
+    await s.close();
+  }
+});
+
 test("an error without any marker is not read as 'not sent'", () => {
   assert.equal(hubReadsAsNotSent("Unknown confirmation code. Call prepare_order again."), false);
   assert.equal(hubReadsAsNotSent("place_order result: something went wrong"), false);
