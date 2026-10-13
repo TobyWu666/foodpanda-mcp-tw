@@ -1,0 +1,20 @@
+Setup notes for the live run on toby's Mac (from the main foodpanda-mcp-tw thread)
+
+- Repo: https://github.com/TobyWu666/foodpanda-mcp-tw, branch main (PRs #6 and #7 are merged, so main has the two-step order tools).
+- Build: npm install && npx playwright install chromium && npm run build   (Node 20 or newer; the script uses top-level await).
+- Save live-check.mjs exactly as is outside the repo, e.g. ~/foodpanda-live-check.mjs.
+  Run it with the repo folder as the current directory: it loads build/index.js and @modelcontextprotocol/sdk from process.cwd().
+- Required env: FOODPANDA_LATITUDE and FOODPANDA_LONGITUDE = toby's delivery coordinates.
+  Put them on the command line only. Never write them to a file and never post them.
+- --login sets FOODPANDA_HEADLESS=0 for the server, so a visible Chromium window opens for toby to log in.
+  Everything else can stay at its default: FOODPANDA_COUNTRY=tw, FOODPANDA_BROWSER_TRANSPORT=1 (needed for PerimeterX), FOODPANDA_MIN_INTERVAL_MS=2000.
+- The token and the browser profile go to ~/.foodpanda-mcp/ (outside git).
+- Safety: the script refuses to call place_order, never uses the confirmation code, and empties the cart at the end.
+  Its output masks addresses, phones, emails and coordinates; restaurant names still reveal the area.
+  Report back to the thread only the OK/ERROR summary lines and the masked error texts.
+- If something fails, report the step name and the masked error text. Known suspects:
+  - search 403: header differences (search sends x-pd-language-id; apollographql-client-version is not sent).
+  - PersistedQueryNotFound: a stale GraphQL hash -> FOODPANDA_HEADLESS=0 node scripts/discover-hashes.mjs
+  - 401 at add_to_cart right after login: a guest token was captured instead of the user's.
+  - prepare_order total differs from the app: pricing uses coordinates only (the app also adds a 3 TWD plastic bag line).
+- Several saved addresses: prepare_order errors with a masked list of address ids. Rerun with --address ID (no --login).
