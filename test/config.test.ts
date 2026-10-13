@@ -63,11 +63,12 @@ test("unknown countries and bad language ids are rejected", () => {
   assert.throws(() => loadRegionConfig({ FOODPANDA_LANGUAGE_ID: "zh" }), /must be an integer/);
 });
 
-test("browser defaults are unchanged", () => {
+test("browser defaults: browser transport on, headed (PerimeterX blocks headless)", () => {
   const cfg = loadRegionConfig({});
   assert.equal(cfg.browserTransport, true);
-  assert.equal(cfg.headless, true);
+  assert.equal(cfg.headless, false);
   assert.equal(cfg.browserChannel, "chromium");
+  assert.equal(loadRegionConfig({ FOODPANDA_HEADLESS: "1" }).headless, true);
   assert.equal(loadRegionConfig({ FOODPANDA_HEADLESS: "0" }).headless, false);
 });
 

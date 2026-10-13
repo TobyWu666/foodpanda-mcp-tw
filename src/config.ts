@@ -50,7 +50,11 @@ export interface RegionConfig {
    * sends a valid _px3 cookie and is allowed through.
    */
   browserTransport: boolean;
-  /** Run the transport/login browser headless (server use) or headed (desktop use). */
+  /**
+   * Run the transport/login browser headless. Off by default: PerimeterX blocks headless
+   * browsers (seen on TW at search), and logging in needs a window anyway. A Linux server
+   * with no DISPLAY gets a private Xvfb (autoXvfb); macOS and Windows open a normal window.
+   */
   headless: boolean;
   /**
    * Chromium build to drive. "chromium" = the full build (new headless mode), which
@@ -180,7 +184,7 @@ export function loadRegionConfig(env: Env = process.env): RegionConfig {
       env.FOODPANDA_GQL_RESTAURANT_DETAILS_HASH || preset.restaurantDetailsHash || "",
     productHash: env.FOODPANDA_GQL_PRODUCT_HASH || preset.productHash || "",
     browserTransport: envFlag(env, "FOODPANDA_BROWSER_TRANSPORT", true),
-    headless: envFlag(env, "FOODPANDA_HEADLESS", true),
+    headless: envFlag(env, "FOODPANDA_HEADLESS", false),
     browserChannel:
       env.FOODPANDA_BROWSER_CHANNEL === undefined
         ? "chromium"
