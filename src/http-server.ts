@@ -20,6 +20,10 @@ import { createServer, type CreateServerOptions } from "./server.js";
 export const MCP_PATH = "/mcp";
 export const MIN_TOKEN_LENGTH = 32;
 
+export const TELEGRAM_PLACE_ORDER_NOTE =
+  "On this server place_order also waits for the user to press 確認下單 on a message sent to their " +
+  "phone in Telegram; if they do not, nothing is sent. Tell the user to check Telegram.";
+
 export const REMOTE_PLACE_ORDER_NOTE =
   "On this server place_order also waits for the user to press 確認下單 in a dialog on the computer " +
   "running it; if nobody does, nothing is sent. Tell the user to watch for that dialog.";

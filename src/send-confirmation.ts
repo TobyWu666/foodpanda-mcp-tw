@@ -64,33 +64,42 @@ export interface MacConfirmOptions {
   now?: () => number;
 }
 
-export function macSendConfirmation(
-  options: MacConfirmOptions = {}
-): (order: SendConfirmationRequest) => Promise<boolean> {
+export function macSendConfirmation(options: MacConfirmOptions = {}): SendConfirmer {
   const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_CONFIRM_TIMEOUT_SECONDS;
   const platform = options.platform ?? process.platform;
   const run = options.run ?? runOsascript;
-  const now = options.now ?? Date.now;
-  let open = false;
-  let shown: number[] = [];
-  return async (order) => {
+  return rateLimited(async (order) => {
     if (platform !== "darwin") {
       console.error("foodpanda-mcp: place_order refused: confirming an order needs the macOS dialog.");
       return false;
     }
+    const args = DIALOG_SCRIPT.flatMap((line) => ["-e", line]);
+    args.push(confirmationText(order), String(timeoutSeconds));
+    const answer = await run(args, (timeoutSeconds + 10) * 1000);
+    return answer === CONFIRMED;
+  }, options.now);
+}
+
+export type SendConfirmer = (order: SendConfirmationRequest) => Promise<boolean>;
+
+/**
+ * One confirmation at a time and at most MAX_DIALOGS_PER_WINDOW per window; beyond
+ * that the answer is no without asking, so a remote client cannot flood the person.
+ */
+export function rateLimited(ask: SendConfirmer, now: () => number = Date.now): SendConfirmer {
+  let open = false;
+  let shown: number[] = [];
+  return async (order) => {
     const t = now();
     shown = shown.filter((at) => t - at < DIALOG_WINDOW_MS);
     if (open || shown.length >= MAX_DIALOGS_PER_WINDOW) {
-      console.error("foodpanda-mcp: place_order refused: a confirmation dialog is open or too many were shown recently.");
+      console.error("foodpanda-mcp: place_order refused: a confirmation is open or too many were asked recently.");
       return false;
     }
     shown.push(t);
     open = true;
     try {
-      const args = DIALOG_SCRIPT.flatMap((line) => ["-e", line]);
-      args.push(confirmationText(order), String(timeoutSeconds));
-      const answer = await run(args, (timeoutSeconds + 10) * 1000);
-      return answer === CONFIRMED;
+      return await ask(order);
     } finally {
       open = false;
     }
